@@ -7,19 +7,29 @@ clear
 % Choose which dataset to load
 dataset = 2; % 1 = Sepsis/NEC, 2 = HERO
 
-% 1-Mean model, 2:S-lope model, or 3:Bspline model
+% 1-Mean model, 2-Slope model, 3-Bspline model, 4-Last Hero Value
 model = 3;
-% Choose whether to use 1: Principal Components for kmeans or 0:Raw output from basis functions
-usePCsForKmeans = 1;
+
+% Choose whether you want to subtract off the PRECEEDING mean
+subtractoffmean = 0;
+
+% Choose whether to use 1: Principal Components or 0:Raw output from basis functions for clustering
+usePCs = 0;
+
+% Subtract (NOT preceeding) mean from data, then add to array to help with prediction
+colofmeans = 0;
+
+% Add in birthweight
+add_bwt = 1;
+
+% Algorithm: 1 = logistic regression, 2 = kmeans clustering, 3 = Gaussian Mixture Model
+alg = 2;
 
 % Select Grouping: 1 - split by site, 2 - split by gender, 3 -split by ELBW/VLBW, 4 - split by ega, 5 - split by control vs Display for Hero, 6 - split by 30 day survival
 grouping = 6; 
 
-% Choose whether you want to subtract off the mean
-subtractoffmean = 0;
-
 % Choose number of neighborhoods
-neighborhoods = 6;
+neighborhoods = 6; % usually 6
 
 % Choose our data window
 daysbefore = -5;
@@ -34,18 +44,9 @@ weightbydistance = 0;
 % Turn on smoothing
 smoothingon = 0;
 
-% Select Functional Data Parameters
-switch model
-    case 1
-        nbasis = 1;
-        nharm = 1;
-    case 2
-        nbasis = 2;
-        nharm = 2;
-    case 3
-        nbasis = ceil(length(daytime)/reductionfactor);
-        nharm = 4;
-end
+
+
+
 
 % Load Dataset
 if dataset==1
@@ -68,7 +69,7 @@ if dataset==1
     reductionfactor = 24;
     lambdabase = 10;
 elseif dataset==2
-	load('X:\Amanda\FuncDataAnalysis\herosepsis.mat')
+	load('X:\Amanda\FuncDataAnalysis\Hero\herosepsis.mat')
     
     % Convert Variables to Be Consistent with Previous Code
     hero(hero==-1) = nan;
@@ -100,6 +101,22 @@ minday = min(ttwindow);
 dayrange = [minday,maxday];
 daytime = ttwindow;
 
+% Select Functional Data Parameters
+switch model
+    case 1
+        nbasis = 1;
+        nharm = 1;
+    case 2
+        nbasis = 2;
+        nharm = 2;
+    case 3
+        nbasis = ceil(length(daytime)/reductionfactor);
+        nharm = 4;
+    case 4
+        nbasis = 1;
+        nharm = 1;
+end
+
 % ------------------- Create Basis Functions -----------------------
 
 Lbasis  = create_constant_basis(dayrange);  %  create a constant basis
@@ -109,7 +126,7 @@ if model==3
 end
 
 % Choose which basis function to use
-if model<3
+if model==1 || model==2 || model==4
     basis = Mbasis;
 else
     basis = Bbasis;
@@ -129,6 +146,7 @@ vdata_interp = zeros(length(ttwindow),nv,size(dataday,3));
 vdata_interp_all = zeros(length(tt),nv,size(dataday,3));
 fdstruct = struct();
 pcastruct = struct();
+datamean = zeros(nv,size(dataday,3));
 
 for v=1:nv
     column = find(varnums==v);
@@ -143,12 +161,19 @@ for v=1:nv
     
     % How much data does each baby have?
     percentavail(:,v) = sum(~isnan(vdata(start_tt:end_tt,:)),1)/length(daytime)';
-    
+       
     % Interpolate/Extrapolate for missing data
     vdata_interp_all(:,v,:) = fillmissing(vdata,'linear','SamplePoints',tt,'EndValues','nearest');
     
+    % If we want to use the model where we just take the last reading
+    if model == 4
+        windowvdata = squeeze(vdata_interp_all(start_tt:end_tt,v,:));
+        vdata_interp_all(:,v,:) = ones(length(tt),1)*windowvdata(end,:);
+    end
+    
     % Subtract off the mean value from the days preceeding the dataset
     priormean = nanmean(squeeze(vdata_interp_all(start_tt_mean:end_tt_mean,v,:)),1);
+    
     if subtractoffmean
         vdata_interp(:,v,:) = squeeze(vdata_interp_all(start_tt:end_tt,v,:))-priormean;
     else
@@ -159,11 +184,17 @@ for v=1:nv
     gooddata = percentavail(:,v)>=thresh;
     goodindices = gooddata;
     
+    % Subtract off the data mean
+    datamean(v,:) = nanmean(squeeze(vdata_interp(:,v,:)));
+    if colofmeans
+        vdata_interp(:,v,:) = squeeze(vdata_interp(:,v,:))-datamean(v,:);
+    end
+    
     if dataset == 1
-        sprintf(['UVA   Babies Included: ' num2str(sum(goodindices(inst==1)))])
-        sprintf(['CU    Babies Included: ' num2str(sum(goodindices(inst==2)))])
+        fprintf(['UVA   Babies Included: ' num2str(sum(goodindices(inst==1))) '\n'])
+        fprintf(['CU    Babies Included: ' num2str(sum(goodindices(inst==2))) '\n'])
     elseif dataset == 2
-        sprintf(['Babies Included: ' num2str(sum(goodindices))])
+        fprintf(['Babies Included: ' num2str(sum(goodindices)) '\n'])
     end
     
     gooddata = squeeze(vdata_interp(:,v,goodindices));
@@ -372,42 +403,85 @@ for v=1:nv
         title('Predicted values')
     end
     
-    % --------------- Cluster Using Nearest Neighbor -------------------
+    % --------------- Choose what we will cluster with -------------------
     
-    if usePCsForKmeans
+    if usePCs % Principal Components
         harmscr = pcastruct(v).daypcastr.harmscr;    
-    else
+    else % Raw Coefficients
         harmscr = getcoef(fdstruct(v).dayfd)';
         harmscr = harmscr(1:end-1,:);
     end
     
-    opts = statset('Display','final');
-    % Centroids Hero 6 neighborhoods, uniform start, 500 iterations
-    startcentroids = [-5.71565437617825,-0.621723197077041,-0.155262049420456,0.145934521267938;6.87448810789400,0.393735699329390,-0.202435121306784,0.0447056045919093;2.60630621130926,-1.77446345925976,0.396459429151139,-0.000306584044559931;-2.35153663888559,0.283072268370912,-0.125753064280199,-0.0613435691042324;2.51369991809380,0.899730355949572,-0.210786120701946,0.0522966919589589;-0.267403459070076,0.0598615299867668,0.0625344896221859,-0.00775541810239860];
-    [idx,C, ~, D] = kmeans(harmscr,neighborhoods,'Replicates',100,'Start','uniform','Options',opts);
-    if usePCsForKmeans
-        percent_in_cat = NearestNeighborPCs(C,idx,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter);
-    else
-        percent_in_cat = NearestNeighborBasic(C,idx,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter);
+    if colofmeans
+        harmscr = [harmscr, datamean(goodindices)'];
     end
     
-    % --------------------- Compute risk score ----------------------
-    if weightbydistance
-        % Weight risk by distance to different clusters
-        weights_per_PC = sum(D,2)./D;
-        normalized_wt_per_PC = weights_per_PC./sum(weights_per_PC,2);
-        riskofdeath = normalized_wt_per_PC*percent_in_cat(:,1)/100;
-    else
-        % Just grab cluster risk
-        riskofdeath = percent_in_cat(idx);
+    if add_bwt
+        harmscr = [harmscr, bwt(pnum(goodindices))];
+    end
+    
+    % --------------- Predict Probability of Outcome -----------------
+    switch alg
+        case 1 % Use Logistic Regression
+            [B,dev,stats] = mnrfit(harmscr,category);
+            pihat = mnrval(B,harmscr,stats);
+            prob_of_outcome = pihat(:,1);
+            
+        case 2 % Use kmeans
+            % Centroids Hero 6 neighborhoods, uniform start, 500 iterations
+            startcentroids = [-5.71565437617825,-0.621723197077041,-0.155262049420456,0.145934521267938;6.87448810789400,0.393735699329390,-0.202435121306784,0.0447056045919093;2.60630621130926,-1.77446345925976,0.396459429151139,-0.000306584044559931;-2.35153663888559,0.283072268370912,-0.125753064280199,-0.0613435691042324;2.51369991809380,0.899730355949572,-0.210786120701946,0.0522966919589589;-0.267403459070076,0.0598615299867668,0.0625344896221859,-0.00775541810239860];
+            [idx,C, ~, D] = kmeans(harmscr,neighborhoods,'Replicates',100,'Start','uniform');
+            if usePCs
+                percent_in_cat = NearestNeighborPCs(C,idx,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter);
+            else
+                percent_in_cat = NearestNeighborBasic(C,idx,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter);
+            end
+            % ------ Compute probability of death
+            if weightbydistance
+                % Weight risk by distance to different clusters
+                weights_per_PC = sum(D,2)./D;
+                normalized_wt_per_PC = weights_per_PC./sum(weights_per_PC,2);
+                prob_of_outcome = normalized_wt_per_PC*percent_in_cat(:,1)/100;
+            else
+                % Just grab cluster risk
+                prob_of_outcome = percent_in_cat(idx);
+            end
+        case 3 % Use Gaussian Mixture Model
+            GMM = fitgmdist(harmscr,neighborhoods);
+            clusterGMM = cluster(GMM,harmscr);
+            for bn = 1:neighborhoods
+                % Find number of babies in each category
+                babies_in_hood = sum(clusterGMM==bn); % babies in neighborhood
+                for c=1:length(unique(category))
+                    babies_in_cat(bn,c) = sum(and((clusterGMM==bn),category==c)); % babies in category
+                    percent_in_cat(bn,c) = round(babies_in_cat(bn,c)/babies_in_hood*100);
+                end
+            end
+            if weightbydistance
+                P = posterior(GMM,harmscr);
+                prob_of_outcome = P*percent_in_cat(:,1)/100;
+            else
+                prob_of_outcome = percent_in_cat(clusterGMM);
+            end
     end
     
     % ------------------- Make ROC Curve ------------------------------
     figure();
-    [X,Y,T,AUC] = perfcurve(category,riskofdeath,1,'Prior','empirical');
+    [X,Y,T,AUC] = perfcurve(category,prob_of_outcome,1,'Prior','empirical');
     plot(X,Y)
     xlabel('False positive rate'); ylabel('True positive rate');
     title(['AUC: ' num2str(round(AUC,2))])
+    fprintf(['AUC: ' num2str(round(AUC,2)) '\n'])
+    
+    % ------------------- Score One Method -----------------------------
+    
+    qtyofoutcome1 = length(category1);
+    [~,I] = sort(prob_of_outcome,'descend');
+    percentcorrect = sum(category(I(1:qtyofoutcome1))==1)/qtyofoutcome1;
+    incidentrate = qtyofoutcome1/length(category);
+    improvement_over_incident_rate = percentcorrect/incidentrate;
+    fprintf(['Score One Method: Percent correct: ' num2str(round(percentcorrect*100)) '%% \n']);
+    fprintf(['Score One Method: Improvement over incident rate: ' num2str(improvement_over_incident_rate) ' \n'])
     
     % -------------- Find Confidence Intervals ----------------------
     
