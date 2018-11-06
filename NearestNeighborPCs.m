@@ -27,13 +27,13 @@ for p = 1:neighborhoods % Neighbor Number
 
     % Plot the principal components multiplied by the coefficients for a single
     % baby
-    plot(daytime,C(bn,:).*pc_fdmat_resampled);
+    plot(daytime,C(bn,1:size(pc_fdmat_resampled,2)).*pc_fdmat_resampled);
     hold on
     % Plot the mean
     plot(daytime,meanfd_fdmat_resampled);
 
     % Add the mean to the principal component sum
-    pc_plus_mean = sum(C(bn,:).*pc_fdmat_resampled,2)+meanfd_fdmat_resampled';
+    pc_plus_mean = sum(C(bn,1:size(pc_fdmat_resampled,2)).*pc_fdmat_resampled,2)+meanfd_fdmat_resampled;
 
     % Plot the sum of the principal components plus the mean for a particular
     % neighborhood

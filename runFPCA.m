@@ -3,9 +3,10 @@
 % Add Ramsay's scripts to the path
 addpath ('X:\Amanda\FuncDataAnalysis\Ramsay')
 clear
+close all
 
 % Choose which dataset to load
-dataset = 2; % 1 = Sepsis/NEC, 2 = HERO
+dataset = 4; % 1 = Sepsis/NEC, 2 = HERO Sepsis Cases, 3 = All HERO cultures, 4 = Control Hero Only, exclude bad pg's
 
 % 1-Mean model, 2-Slope model, 3-Bspline model, 4-Last Hero Value
 model = 3;
@@ -20,13 +21,13 @@ usePCs = 0;
 colofmeans = 0;
 
 % Add in birthweight
-add_bwt = 1;
+add_bwt = 0;
 
 % Algorithm: 1 = logistic regression, 2 = kmeans clustering, 3 = Gaussian Mixture Model
 alg = 2;
 
-% Select Grouping: 1 - split by site, 2 - split by gender, 3 -split by ELBW/VLBW, 4 - split by ega, 5 - split by control vs Display for Hero, 6 - split by 30 day survival
-grouping = 6; 
+% Select Grouping: 1 - split by site, 2 - split by gender, 3 -split by ELBW/VLBW, 4 - split by ega, 5 - split by control vs Display for Hero, 6 - split by 30 day survival, 7 - split by pos/neg blood culture, 8 - negsep
+grouping = 8; 
 
 % Choose number of neighborhoods
 neighborhoods = 6; % usually 6
@@ -39,7 +40,7 @@ daysafter = 0;
 thresh = 0.85;
 
 % Choose whether to weight risk score by distance
-weightbydistance = 0;
+weightbydistance = 1;
 
 % Turn on smoothing
 smoothingon = 0;
@@ -75,6 +76,46 @@ elseif dataset==2
     hero(hero==-1) = nan;
     dataday(:,1,:) = hero';
     n = size(dataday,3);
+    
+    % Only Run Analysis on Variables of Interest
+    varofinterest = {'hero'};
+    vname = varofinterest;
+    limofinterest = [-1 7];
+    varnums = 1;
+    nv = 1;
+    
+    % Set basis parameters
+    reductionfactor = 6;
+    lambdabase = 0.1;
+elseif dataset==3
+    load('X:\Amanda\FuncDataAnalysis\Hero\allcxhero.mat')
+    load('X:\Amanda\FuncDataAnalysis\Hero\ddate.mat')
+    
+    % Convert Variables to Be Consistent with Previous Code
+    hero(hero==-1) = nan;
+    dataday(:,1,:) = hero';
+    n = size(dataday,3);
+    
+    % Only Run Analysis on Variables of Interest
+    varofinterest = {'hero'};
+    vname = varofinterest;
+    limofinterest = [-1 7];
+    varnums = 1;
+    nv = 1;
+    
+    % Set basis parameters
+    reductionfactor = 6;
+    lambdabase = 0.1;
+elseif dataset==4
+    load('X:\Amanda\FuncDataAnalysis\Hero\allcxhero.mat')
+    load('X:\Amanda\FuncDataAnalysis\Hero\ddate.mat')
+    load('X:\Amanda\FuncDataAnalysis\Hero\otherfiguredata.mat')
+    
+    % Convert Variables to Be Consistent with Previous Code
+    hero(hero==-1) = nan;
+    dataday(:,1,:) = hero';
+    n = size(dataday,3);
+    toinclude = pg>0 & control;
     
     % Only Run Analysis on Variables of Interest
     varofinterest = {'hero'};
@@ -182,6 +223,9 @@ for v=1:nv
     
     % Find babies which have a certain percentage of data
     gooddata = percentavail(:,v)>=thresh;
+    if dataset==4
+        gooddata = gooddata&toinclude;
+    end
     goodindices = gooddata;
     
     % Subtract off the data mean
@@ -276,7 +320,7 @@ for v=1:nv
             category1 = find(category==1)'; % UVA
             category2 = find(category==2)'; % CU
             % Set up a design matrix having a column for the grand mean and a 
-            % column for each gender/site. Add a dummy contraint observation.
+            % column for each gender/site. Add a dummy constraint observation.
             p = size(group_names,1);
             zmat = zeros(size(gooddata,2),p);
             zmat(:,1) = 1;
@@ -289,7 +333,7 @@ for v=1:nv
             category1 = find(category==1)'; % Female
             category2 = find(category==2)'; % Male
             % Set up a design matrix having a column for the grand mean and a 
-            % column for each gender/site. Add a dummy contraint observation.
+            % column for each gender/site. Add a dummy constraint observation.
             p = size(group_names,1);
             zmat = zeros(size(gooddata,2),p);
             zmat(:,1) = 1;
@@ -302,7 +346,7 @@ for v=1:nv
             category1 = find(category<1000)'; % ELBW
             category2 = find(category>=1000)'; % VLBW non ELBW
             % Set up a design matrix having a column for the grand mean and a 
-            % column for each gender/site/weight. Add a dummy contraint observation.
+            % column for each gender/site/weight. Add a dummy constraint observation.
             p = size(group_names,1);
             zmat = zeros(size(gooddata,2),p);
             zmat(:,1) = 1;
@@ -317,7 +361,7 @@ for v=1:nv
             category3 = find(category>=30&category<34)'; % 31-34 Weeks
             category4 = find(category>=34)'; % >34 Weeks
             % Set up a design matrix having a column for the grand mean and a 
-            % column for each gender/site. Add a dummy contraint observation.
+            % column for each gender/site. Add a dummy constraint observation.
             p = size(group_names,1);
             zmat = zeros(size(gooddata,2),p);
             zmat(:,1) = 1;
@@ -332,7 +376,7 @@ for v=1:nv
             category1 = find(category==1)'; % Female
             category2 = find(category==2)'; % Male
             % Set up a design matrix having a column for the grand mean and a 
-            % column for each gender/site. Add a dummy contraint observation.
+            % column for each gender/site. Add a dummy constraint observation.
             p = size(group_names,1);
             zmat = zeros(size(gooddata,2),p);
             zmat(:,1) = 1;
@@ -346,7 +390,32 @@ for v=1:nv
             category2 = find(category==0); % Survived for 30 days after time 0
             category(category==0) = 2; % Switch category label so that survival is category 2
             % Set up a design matrix having a column for the grand mean and a 
-            % column for each gender/site. Add a dummy contraint observation.
+            % column for each gender/site. Add a dummy contsraint observation.
+            p = size(group_names,1);
+            zmat = zeros(size(gooddata,2),p);
+            zmat(:,1) = 1;
+            zmat(category1,2) = 1;
+            zmat(category2,3) = 1;
+        case 7
+            group_names = ['All     ';'Positive';'Negative'];
+            category = pg(goodindices);
+            %Switch the category labels
+            category(category==2) = 0;
+            category(category==1) = 2;
+            category(category==0) = 1;
+            category1 = find(category==1); % Positive culture
+            category2 = find(category==2); % Negative culture
+            p = size(group_names,1);
+            zmat = zeros(size(gooddata,2),p);
+            zmat(:,1) = 1;
+            zmat(category1,2) = 1;
+            zmat(category2,3) = 1;
+        case 8
+            group_names = ['All       ';'Negsep    ';'Not negsep'];
+            category = double(negsep(goodindices));
+            category1 = find(category==1); % Negsep
+            category2 = find(category==0); % Not negsep (Clinsep + Sep)
+            category(category==0) = 2;
             p = size(group_names,1);
             zmat = zeros(size(gooddata,2),p);
             zmat(:,1) = 1;
@@ -434,7 +503,7 @@ for v=1:nv
             if usePCs
                 percent_in_cat = NearestNeighborPCs(C,idx,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter);
             else
-                percent_in_cat = NearestNeighborBasic(C,idx,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter);
+                percent_in_cat = NearestNeighborBasic(C,idx,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,basis);
             end
             % ------ Compute probability of death
             if weightbydistance
@@ -447,8 +516,14 @@ for v=1:nv
                 prob_of_outcome = percent_in_cat(idx);
             end
         case 3 % Use Gaussian Mixture Model
-            GMM = fitgmdist(harmscr,neighborhoods);
+            options = statset('MaxIter',300);
+            GMM = fitgmdist(harmscr,neighborhoods,'Options',options);
             clusterGMM = cluster(GMM,harmscr);
+            if usePCs
+                NearestNeighborPCs(GMM.mu,clusterGMM,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter);
+            else
+                NearestNeighborBasic(GMM.mu,clusterGMM,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,basis);
+            end
             for bn = 1:neighborhoods
                 % Find number of babies in each category
                 babies_in_hood = sum(clusterGMM==bn); % babies in neighborhood
@@ -485,7 +560,7 @@ for v=1:nv
     
     % -------------- Find Confidence Intervals ----------------------
     
-    if model == 3
+    if model == 3 && dataset<3
         % Compute mapping from data y to coefficients in c
         basismat = eval_basis(daytime, basis);
         y2cMap = (basismat'*basismat)\basismat';

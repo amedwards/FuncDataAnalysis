@@ -1,4 +1,4 @@
-function percent_in_cat = NearestNeighborBasic(C,idx,daytime,yaxisname,category,group_names,daysbefore,daysafter)
+function percent_in_cat = NearestNeighborBasic(C,idx,daytime,yaxisname,category,group_names,daysbefore,daysafter,basis)
 
 % load('gooddata_hero.mat')
 % load('kmeans4_fromharmscr.mat')
@@ -17,20 +17,22 @@ end
 [~,plotorder] = sort(numincategory,'descend');
 for n = 1:neighborhoods % Neighbor Number
     bn = plotorder(n);
-    subplot(2,3,n)
+    subplot(2,ceil(neighborhoods/2),n)
     
-    if size(C,2)==1
+    if size(C,2)==1 % the input is a single value
         linetoplot=ones(length(daytime),1)*C(bn);
         plot(daytime,linetoplot,'LineWidth',3);
         xlabel('Days Until Event')
-    elseif size(C,2)==2
+    elseif size(C,2)==2 % the input is an intercept and a slope
         linetoplot=(daytime-daysafter-daysbefore)*C(bn,1)+C(bn,2);
         plot(daytime,linetoplot,'LineWidth',3);
         xlabel('Days Until Event')
-    else
-        linetoplot=C(bn,:);
-        plot(linetoplot,'LineWidth',3);
-        xlabel('Coefficients')
+    else % the input is a bunch of coefficients
+        evaluatedbasis = eval_basis(daytime,basis);
+        characteristiccurves = evaluatedbasis*C';
+        linetoplot=characteristiccurves(:,bn);
+        plot(daytime,linetoplot,'LineWidth',3);
+        xlabel('Days Until Event')
     end
 
     
