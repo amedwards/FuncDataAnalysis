@@ -21,13 +21,13 @@ usePCs = 0;
 colofmeans = 0;
 
 % Add in birthweight
-add_bwt = 0;
+add_bwt = 1;
 
 % Algorithm: 1 = logistic regression, 2 = kmeans clustering, 3 = Gaussian Mixture Model
-alg = 2;
+alg = 1;
 
-% Select Grouping: 1 - split by site, 2 - split by gender, 3 -split by ELBW/VLBW, 4 - split by ega, 5 - split by control vs Display for Hero, 6 - split by 30 day survival, 7 - split by pos/neg blood culture, 8 - negsep
-grouping = 8; 
+% Select Grouping: 1 - split by site, 2 - split by gender, 3 -split by ELBW/VLBW, 4 - split by ega, 5 - split by control vs Display for Hero, 6 - split by 30 day survival, 7 - split by pos/neg blood culture, 8 - negsep, 9 - non-CONS bacteria
+grouping = 9; 
 
 % Choose number of neighborhoods
 neighborhoods = 6; % usually 6
@@ -415,6 +415,18 @@ for v=1:nv
             category = double(negsep(goodindices));
             category1 = find(category==1); % Negsep
             category2 = find(category==0); % Not negsep (Clinsep + Sep)
+            category(category==0) = 2;
+            p = size(group_names,1);
+            zmat = zeros(size(gooddata,2),p);
+            zmat(:,1) = 1;
+            zmat(category1,2) = 1;
+            zmat(category2,3) = 1;
+        case 9
+            group_names = ['All              ';'Non-CONS Bacteria';'Negative or CONS '];
+            nonconsbac = c>2&c<16;
+            category = double(nonconsbac(goodindices));
+            category1 = find(category==1); % Non-CONS Bacteria
+            category2 = find(category==0); % Either CONS or no bacteria
             category(category==0) = 2;
             p = size(group_names,1);
             zmat = zeros(size(gooddata,2),p);
