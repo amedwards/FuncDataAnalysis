@@ -1,3 +1,4 @@
+function preprocessedFPCA(institution,hrdaywk)
 % preprocessedFPCA reads in stats files and converts them into the format
 % required to run FPCA via preprocessedFPCA_run.m. 
 % The user needs to select which institution from which to save data by 
@@ -7,10 +8,10 @@
 
 % Choose which dataset you would like to read in:
 % 1 = UVA, 2 = CU, 3 = WUSTL
-institution = 3;
+% institution = 
 % Choose whether you would like to lump by
 % 1 = HR, 2 = Day, 3 = Week
-hrdaywk = 2;
+% hrdaywk = 
 
 switch institution
     case 1
@@ -100,6 +101,8 @@ for i=1:n
         % Find Gender
         genindex = find(contains(pname,'Sex'));
         pgen(i) = pdata(genindex);
+    elseif institution==3
+        pid(i) = str2double(filename(4:7));
     end
     
     % Find chronologic age time stamps
@@ -142,7 +145,7 @@ for i=1:n
     
     % Update the waitbar
     waitbar(i/n,f,[num2str(round(i/n*100,1)),'% Complete'])
-
+    clear pname
 end
 inst = institution*ones(n,1);
 close(f)

@@ -1,0 +1,54 @@
+# Windows default autosave extension
+*.asv
+
+# OSX / *nix default autosave extension
+*.m~
+
+# Compiled MEX binaries (all platforms)
+*.mex*
+
+# Packaged app and toolbox files 
+*.mlappinstall 
+*.mltbx 
+  
+# Generated helpsearch folders 
+helpsearch*/ 
+
+# Simulink code generation folders
+slprj/
+sccprj/
+
+# Simulink autosave extension
+*.autosave
+
+# Octave session info
+octave-workspace
+
+# HDF5 Test Files
+*.hdf5
+
+# Zip Files
+*.zip
+
+# Files for Zach
+FilesForZach/
+
+# Matlab Project files
+*.prj
+Figures/
+IndividualSiteStatsFiles/
+RamsayFromSarah/
+SarahNotes/
+SepsisNEC/
+TablesAndSpreadsheets/
+
+# Matlab data files - we are not keeping anything that could possibly have any patient data in it
+*.mat
+
+# Old Files
+FPCA502PeteBabies.m
+heroFPCA.m
+plotPCforsinglebaby.m
+
+
+DELETETHIS*

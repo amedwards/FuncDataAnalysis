@@ -1,4 +1,4 @@
-function percent_in_cat = NearestNeighborPCs(C,idx,pc_fdmat,meanfd_fdmat,daytime,yaxisname,category,group_names,daysbefore,daysafter)
+function percent_in_cat = NearestNeighborPCs(C,idx,pc_fdmat,meanfd_fdmat,daytime,yaxisname,category,group_names,daysbefore,daysafter,limofinterest)
 
 % load('gooddata_hero.mat')
 % load('kmeans4_fromharmscr.mat')
@@ -15,6 +15,7 @@ for n=1:neighborhoods
     numincategory(n) = sum(idx==n);
 end
 [~,plotorder] = sort(numincategory,'descend');
+plotorder = sort(plotorder);
 for p = 1:neighborhoods % Neighbor Number
     bn = plotorder(p);
     subplot(2,3,p)
@@ -33,7 +34,14 @@ for p = 1:neighborhoods % Neighbor Number
     plot(daytime,meanfd_fdmat_resampled);
 
     % Add the mean to the principal component sum
-    pc_plus_mean = sum(C(bn,1:size(pc_fdmat_resampled,2)).*pc_fdmat_resampled,2)+meanfd_fdmat_resampled;
+    pcsum = sum(C(bn,1:size(pc_fdmat_resampled,2)).*pc_fdmat_resampled,2);
+    if isrow(pcsum)
+        pcsum = pcsum';
+    end
+    if isrow(meanfd_fdmat_resampled)
+        meanfd_fdmat_resampled = meanfd_fdmat_resampled';
+    end
+    pc_plus_mean = pcsum + meanfd_fdmat_resampled;
 
     % Plot the sum of the principal components plus the mean for a particular
     % neighborhood
@@ -47,23 +55,30 @@ for p = 1:neighborhoods % Neighbor Number
     end
 
     xlabel('Days Until Event')
+    xlabel('Days of Life')
     ylabel(yaxisname)
     PC_title_string = '';
-    for pc = 1:size(C,2)
-        PC_title_string = horzcat(PC_title_string,[', PC' num2str(pc) ': ' num2str(round(C(bn,1),2))]);
-    end
-    title({['Neighbor: ' num2str(bn) PC_title_string]...
+%     for pc = 1:size(C,2)
+%         PC_title_string = horzcat(PC_title_string,[', PC' num2str(pc) ': ' num2str(round(C(bn,pc),2))]);
+%     end
+    if size(group_names,1)>2
+        title({['Neighbor: ' num2str(bn) PC_title_string]...
         [num2str(babies_in_hood) ' out of ' num2str(length(idx)) ' babies are in this neighborhood. '],...
-        [num2str(percent_in_cat(bn,1)) '%: ' group_names(1,:) ', ' num2str(100 - percent_in_cat(bn,1)) '%: ' group_names(2,:)]})
-    if size(C,2)==1
-        legend('1st Principal Component','Group Mean','Sum of Fit','Location','northwest')
-    elseif size(C,2)==2
-        legend('1st Principal Component','2nd Principal Component','Group Mean','Sum of Fit','Location','northwest')
-    elseif size(C,2)==3
-        legend('1st Principal Component','2nd Principal Component','3rd Principal Component','Group Mean','Sum of Fit','Location','northwest')
-    elseif size(C,2)==4
-        legend('1st Principal Component','2nd Principal Component','3rd Principal Component','4th Principal Component','Group Mean','Sum of Fit','Location','northwest')
+        [num2str(percent_in_cat(bn,1)) '%: ' group_names(1,:) ', ' num2str(percent_in_cat(bn,2)) '%: ' group_names(2,:) ', ' num2str(percent_in_cat(bn,3)) '%: ' group_names(3,:) ]})
+    else
+        title({['Neighbor: ' num2str(bn) PC_title_string]...
+            [num2str(babies_in_hood) ' out of ' num2str(length(idx)) ' babies are in this neighborhood. '],...
+            [num2str(percent_in_cat(bn,1)) '%: ' group_names(1,:) ', ' num2str(100 - percent_in_cat(bn,1)) '%: ' group_names(2,:) ]})
     end
-    ylim([-3 7])
+    if size(C,2)==1
+        legend('1st Principal Component','Mean Curve','Characteristic Curve','Location','northwest')
+    elseif size(C,2)==2
+        legend('1st Principal Component','2nd Principal Component','Mean Curve','Characteristic Curve','Location','northwest')
+    elseif size(C,2)==3
+        legend('1st Principal Component','2nd Principal Component','3rd Principal Component','Mean Curve','Characteristic Curve','Location','northwest')
+    elseif size(C,2)==4
+        legend('1st Principal Component','2nd Principal Component','3rd Principal Component','4th Principal Component','Mean Curve','Characteristic Curve','Location','northwest')
+    end
+    ylim(limofinterest)
     hold off
 end

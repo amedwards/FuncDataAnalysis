@@ -6,7 +6,13 @@ clear
 close all
 
 % Choose which dataset to load
-dataset = 4; % 1 = Sepsis/NEC, 2 = HERO Sepsis Cases, 3 = All HERO cultures, 4 = Control Hero Only, exclude bad pg's
+% 1 = Sepsis/NEC
+% 2 = HERO Sepsis Cases
+% 3 = All HERO cultures
+% 4 = Control Hero Only, exclude bad pg's, only blood cultures
+% 5 = UVA, CU, WUSTL Stats - daily
+% 6 = UVA, CU, WUSTL Stats - hourly
+dataset = 5; 
 
 % 1-Mean model, 2-Slope model, 3-Bspline model, 4-Last Hero Value
 model = 3;
@@ -14,20 +20,42 @@ model = 3;
 % Choose whether you want to subtract off the PRECEEDING mean
 subtractoffmean = 0;
 
-% Choose whether to use 1: Principal Components or 0:Raw output from basis functions for clustering
-usePCs = 0;
+% Choose whether to use 1: Principal Components or 0: Raw output from basis functions for clustering
+usePCs = 1;
 
 % Subtract (NOT preceeding) mean from data, then add to array to help with prediction
 colofmeans = 0;
 
 % Add in birthweight
-add_bwt = 1;
+add_bwt = 0;
 
-% Algorithm: 1 = logistic regression, 2 = kmeans clustering, 3 = Gaussian Mixture Model
-alg = 1;
+% Add in days of age
+add_daysofage = 0;
 
-% Select Grouping: 1 - split by site, 2 - split by gender, 3 -split by ELBW/VLBW, 4 - split by ega, 5 - split by control vs Display for Hero, 6 - split by 30 day survival, 7 - split by pos/neg blood culture, 8 - negsep, 9 - non-CONS bacteria
-grouping = 9; 
+% Only use birthweight
+only_bwt = 0;
+
+% Only use birthweight + days of age
+only_bwt_doa = 0;
+
+% Algorithm: 
+% 1 = logistic regression
+% 2 = kmeans clustering
+% 3 = Gaussian Mixture Model
+% 4 = randomk with LWEA
+alg = 4;
+
+% Select Grouping:
+% 1 - site
+% 2 - gender
+% 3 - ELBW/VLBW
+% 4 - EGA
+% 5 - control vs display (for Hero)
+% 6 - 30 day survival
+% 7 - Pos/Neg blood culture
+% 8 - negsep
+% 9 - non-CONS bacteria
+grouping = 1; 
 
 % Choose number of neighborhoods
 neighborhoods = 6; % usually 6
@@ -37,15 +65,21 @@ daysbefore = -5;
 daysafter = 0;
 
 % Percent threshold for the amount of data that is required for inclusion
-thresh = 0.85;
+thresh = 0.50;
 
 % Choose whether to weight risk score by distance
-weightbydistance = 1;
+weightbydistance = 0;
 
 % Turn on smoothing
 smoothingon = 0;
 
+% Use Varimax to rotate the principal components
+usevarimax = 1;
 
+% Use the 12 datapoint derivative (12 hour derivative for Hero)
+derivative12hr = 0;
+
+derivative = 0;
 
 
 
@@ -115,7 +149,7 @@ elseif dataset==4
     hero(hero==-1) = nan;
     dataday(:,1,:) = hero';
     n = size(dataday,3);
-    toinclude = pg>0 & control;
+    toinclude = pg>0 & control & c==1;
     
     % Only Run Analysis on Variables of Interest
     varofinterest = {'hero'};
@@ -127,6 +161,81 @@ elseif dataset==4
     % Set basis parameters
     reductionfactor = 6;
     lambdabase = 0.1;
+elseif dataset==5
+    load('X:\Amanda\FuncDataAnalysis\UVA_CU_WUSTL_FPCA_Stats_day.mat')
+    load('X:\Amanda\FuncDataAnalysis\GoodIDs.mat')
+
+    % Keep only the data from qualifying babies who have at least 7 days of
+    % data in the first 28 days of life
+    dataday = datamerge(:,:,GoodIDs);
+    pbd = pbd(GoodIDs);
+    pbw = pbw(GoodIDs);
+    pega = pega(GoodIDs);
+    pgen = pgen(GoodIDs);
+    pid = pid(GoodIDs);
+    numsamps = numsamps(:,:,GoodIDs);
+    inst = inst(GoodIDs);
+    n = sum(GoodIDs);
+    
+    varofinterest = {'Mean HR','Mean SPO2-%'};
+    [varlog,varnums] = ismember(vname,varofinterest);
+    nv = sum(varlog);
+    tt=1:84;
+    limofinterest = [100 200; 80 100];
+    daysbefore = 1;
+    daysafter = 42;
+    
+    % Set basis parameters
+    reductionfactor = 6;
+    lambdabase = 0.1;
+elseif dataset==6
+    load('X:\Amanda\FuncDataAnalysis\UVA_CU_WUSTL_FPCA_Stats_hr.mat')
+    load('X:\Amanda\FuncDataAnalysis\GoodIDs.mat')
+
+    % Keep only the data from qualifying babies who have at least 7 days of
+    % data in the first 28 days of life
+    dataday = datamerge(:,:,GoodIDs);
+    pbd = pbd(GoodIDs);
+    pbw = pbw(GoodIDs);
+    pega = pega(GoodIDs);
+    pgen = pgen(GoodIDs);
+    pid = pid(GoodIDs);
+    numsamps = numsamps(:,:,GoodIDs);
+    inst = inst(GoodIDs);
+    n = sum(GoodIDs);
+    
+    varofinterest = {'Mean HR','Mean SPO2-%'};
+    [varlog,varnums] = ismember(vname,varofinterest);
+    nv = sum(varlog);
+    limofinterest = [100 200; 80 100];
+    daysbefore = 1;
+    daysafter = 24*2; % hours after start of life
+    tt = daysbefore:daysafter; % 1st 6 weeks of life by hour
+    % Set basis parameters
+    reductionfactor = 6;
+    lambdabase = 0.1;
+end
+
+if derivative12hr
+    dataday = dataday(13:daysafter,:,:)-dataday(1:daysafter-12,:,:);
+    tt = tt(13:end);
+    if dataset<5
+        daysbefore = -4;
+    else
+        daysbefore = 24; % Hours
+        limofinterest = [-12 12; -12 12];
+    end
+end
+
+if derivative
+    dataday = dataday(daysbefore+1:daysafter,:,:)-dataday(1:daysafter-1,:,:);
+    tt = tt(2:end);
+    if dataset<5
+        daysbefore = -4;
+    else
+        daysbefore = 2; % Hours
+        limofinterest = [-12 12; -12 12];
+    end
 end
 
 % Find the running mean before the data window begins
@@ -188,6 +297,8 @@ vdata_interp_all = zeros(length(tt),nv,size(dataday,3));
 fdstruct = struct();
 pcastruct = struct();
 datamean = zeros(nv,size(dataday,3));
+
+
 
 for v=1:nv
     column = find(varnums==v);
@@ -307,18 +418,23 @@ for v=1:nv
     % ------------------------- PCA ------------------------------------
     
     pcastruct(v).daypcastr = pca_fd(fdstruct(v).dayfd,nharm);
+    % Rotate the PC's using the varimax function to explain the most variability
+    if usevarimax
+        pcastruct(v).daypcastr = varmx_pca_fd(pcastruct(v).daypcastr);
+    end
     figure(); 
-    [meanfd_fdmat,pc_fdmat] = plot_pca_fd(pcastruct(v).daypcastr,1); % store the principal components that we plot
+    [meanfd_fdmat,pc_fdmat] = plot_pca_fd(pcastruct(v).daypcastr,1);
     
     % -------------------- Functional ANOVA -------------------------
     % Names for groups
     switch grouping
         case 1
-            group_names = ['All  '; 'UVA  ';'CU   '];
+            group_names = ['All  '; 'UVA  ';'CU   '; 'WUSTL'];
             % Site Indices
             category = inst(goodindices);
             category1 = find(category==1)'; % UVA
             category2 = find(category==2)'; % CU
+            category3 = find(category==3)'; % WUSTL
             % Set up a design matrix having a column for the grand mean and a 
             % column for each gender/site. Add a dummy constraint observation.
             p = size(group_names,1);
@@ -326,6 +442,7 @@ for v=1:nv
             zmat(:,1) = 1;
             zmat(category1,2) = 1;
             zmat(category2,3) = 1;
+            zmat(category3,4) = 1;
         case 2
             group_names = ['All   ';'Female'; 'Male  '];
             % Gender Indices
@@ -501,6 +618,20 @@ for v=1:nv
         harmscr = [harmscr, bwt(pnum(goodindices))];
     end
     
+    if add_daysofage
+        daysofage = pdate-bd(pnum);
+        harmscr = [harmscr, daysofage(goodindices)];
+    end
+    
+    if only_bwt
+        harmscr = bwt(pnum(goodindices));
+    end
+    
+    if only_bwt_doa
+        daysofage = pdate-bd(pnum);
+        harmscr = [bwt(pnum(goodindices)), daysofage(goodindices)];
+    end
+    
     % --------------- Predict Probability of Outcome -----------------
     switch alg
         case 1 % Use Logistic Regression
@@ -550,6 +681,28 @@ for v=1:nv
             else
                 prob_of_outcome = percent_in_cat(clusterGMM);
             end
+        case 4
+            objects = size(harmscr,1);
+            niterk = 100; % number of iterations with different values of k neighborhoods
+            mink = 2;
+            maxk = round(sqrt(objects));
+            randk = randi([mink maxk],niterk,1); % generate 100 random integers between mink and maxk
+            allclusters = zeros(objects,niterk);
+            for a=1:length(randk)
+                [idx] = kmeans(harmscr,randk(a));
+                allclusters(:,a) = idx;
+            end
+            addpath('EnsembleClustering')
+            [resultsLWEA,resultsLWGP] = LWEA_and_LWGP(allclusters,category);
+            C_LWEA = findclustercentroids(resultsLWEA,harmscr);
+            C_LWGP = findclustercentroids(resultsLWGP,harmscr); 
+            if usePCs
+                for clusts = 1:5
+                    figure()
+                    percent_in_cat = NearestNeighborPCs(C_LWEA(clusts).centroid,resultsLWEA(:,clusts),pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest(v,:));
+                end
+            end
+            prob_of_outcome = percent_in_cat(resultsLWEA(:,clusts));
     end
     
     % ------------------- Make ROC Curve ------------------------------
@@ -572,7 +725,7 @@ for v=1:nv
     
     % -------------- Find Confidence Intervals ----------------------
     
-    if model == 3 && dataset<3
+    if model == 3 && (dataset<3 || dataset==5)
         % Compute mapping from data y to coefficients in c
         basismat = eval_basis(daytime, basis);
         y2cMap = (basismat'*basismat)\basismat';
@@ -626,7 +779,7 @@ for v=1:nv
             if ~subtractoffmean
                 ylim([limofinterest(v,1),limofinterest(v,2)]);
             end
-        elseif dataset == 2
+        elseif dataset == 2 || dataset==5
             labelordervector = unique(category,'stable')'; % NOTE: This only works if the indices are 1,2,3,etc.
             groupnamesnoall = group_names(2:end,:);
             legend(groupnamesnoall(labelordervector,:));

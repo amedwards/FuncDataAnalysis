@@ -29,10 +29,17 @@ for n = 1:neighborhoods % Neighbor Number
         xlabel('Days Until Event')
     else % the input is a bunch of coefficients
         evaluatedbasis = eval_basis(daytime,basis);
-        characteristiccurves = evaluatedbasis*C';
-        linetoplot=characteristiccurves(:,bn);
-        plot(daytime,linetoplot,'LineWidth',3);
-        xlabel('Days Until Event')
+        if size(evaluatedbasis,2)==size(C,2)
+            characteristiccurves = evaluatedbasis*C';
+            linetoplot=characteristiccurves(:,bn);
+            plot(daytime,linetoplot,'LineWidth',3);
+            xlabel('Days Until Event')
+        else
+            characteristiccurves = evaluatedbasis*C(:,1:size(evaluatedbasis,2))';
+            linetoplot=characteristiccurves(:,bn);
+            plot(daytime,linetoplot,'LineWidth',3);
+            xlabel('Days Until Event')
+        end
     end
 
     
@@ -48,8 +55,12 @@ for n = 1:neighborhoods % Neighbor Number
 
     ylabel(yaxisname)
     PC_title_string = '';
-    for pc = 1:size(C,2)
-        PC_title_string = horzcat(PC_title_string,[', PC' num2str(pc) ': ' num2str(round(C(bn,1),2))]);
+    if size(C,2)<6
+        for pc = 1:size(C,2)
+            PC_title_string = horzcat(PC_title_string,[', PC' num2str(pc) ': ' num2str(round(C(bn,1),2))]);
+        end
+    else
+        PC_title_string = '';
     end
     title({['Neighbor: ' num2str(bn) PC_title_string]...
         [num2str(babies_in_hood) ' out of ' num2str(length(idx)) ' babies are in this neighborhood. '],...
