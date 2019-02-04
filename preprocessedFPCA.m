@@ -18,14 +18,21 @@ switch institution
         % UVA Data
         folder = 'V:/NICU/pulseOxStats';
         savefile = 'UVA_FPCA_Stats';
+        vname={'Mean HR','Mean SPO2-R','Mean SPO2-%','SD HR','SD SPO2-R','SD SPO2-%','Skewness HR','Skewness SPO2-R','Skewness SPO2-%','Kurtosis HR','Kurtosis SPO2-R','Kurtosis SPO2-%',...
+            'Max XC HR SPO2-%','Lag Max XC HR SPO2-%','Min XC HR SPO2-%','Lag Min XC HR SPO2-%','Max XC SPO2-R SPO2-%','Lag Max XC SPO2-R SPO2-%','Min XC SPO2-R SPO2-%','Lag Min XC SPO2-R SPO2-%'}';
     case 2
         % CU Data
-        folder = 'V:/CU/pulseOxStats';
+%         folder = 'V:/CU/pulseOxStats';
+        folder = 'X:/Amanda/Columbia/ColumbiaThirdBatchJob/forAmanda_01092019/pulseOxStats';
         savefile = 'CU_FPCA_Stats';
+        vname = {'Mean vt_hr','Mean vt_spo2r','Mean vt_spo2','SD vt_hr','SD vt_spo2r','SD vt_spo2','Skewness vt_hr','Skewness vt_spo2r','Skewness vt_spo2','Kurtosis vt_hr','Kurtosis vt_spo2r','Kurtosis vt_spo2',...
+            'Max XC vt_hr vt_spo2','Lag Max XC vt_hr vt_spo2','Min XC vt_hr vt_spo2','Lag Min XC vt_hr vt_spo2', 'Max XC vt_spo2r vt_spo2','Lag Max XC vt_spo2r vt_spo2','Min XC vt_spo2r vt_spo2','Lag Min XC vt_spo2r vt_spo2'}';
     case 3
         % WUSTL Data
         folder = 'V:/WUSTL/pulseOxStats'; 
         savefile = 'WUSTL_FPCA_Stats';
+        vname={'Mean HR','Mean SPO2-R','Mean SPO2-%','SD HR','SD SPO2-R','SD SPO2-%','Skewness HR','Skewness SPO2-R','Skewness SPO2-%','Kurtosis HR','Kurtosis SPO2-R','Kurtosis SPO2-%',...
+            'Max XC HR SPO2-%','Lag Max XC HR SPO2-%','Min XC HR SPO2-%','Lag Min XC HR SPO2-%','Max XC SPO2-R SPO2-%','Lag Max XC SPO2-R SPO2-%','Min XC SPO2-R SPO2-%','Lag Min XC SPO2-R SPO2-%'}';
 end
 
 
@@ -35,8 +42,7 @@ n = length(filelist);
 
 % Choose which variables you would like to store
 % vname={'Mean HR','Mean SPO2-%'}';
-vname={'Mean HR','Mean SPO2-R','Mean SPO2-%','SD HR','SD SPO2-R','SD SPO2-%','Skewness HR','Skewness SPO2-R','Skewness SPO2-%','Kurtosis HR','Kurtosis SPO2-R','Kurtosis SPO2-%',...
-    'Max XC HR SPO2-%','Lag Max XC HR SPO2-%','Min XC HR SPO2-%','Lag Min XC HR SPO2-%','Max XC SPO2-R SPO2-%','Lag Max XC SPO2-R SPO2-%','Min XC SPO2-R SPO2-%','Lag Min XC SPO2-R SPO2-%'}';
+
 nv=length(vname);
 vcols = zeros(nv,1);
 
@@ -79,28 +85,43 @@ for i=1:n
     load(fullfilename)
     
     if exist('pname','var')
+        
         % Find patient ID
         idindex = find(contains(pname,'PatientID'));
-        pid(i) = pdata(idindex);
+        
+        if institution == 2
+            id = str2double(extractBetween(filename,'_','_'));
+            pdatarow = find(pdata(:,idindex)==id);
+        end
 
         % Find birth date
         bdayindex = find(contains(pname,'BirthDate'));
-        pbd(i) = pdata(bdayindex); % seconds of age since some arbitrary time point
-
+        
         % Find birth weight
         bwindex = find(contains(pname,'BirthWeight'));
-        pbw(i) = pdata(bwindex);
-
+        
         % Find Estimated Gestational Age
         egaindex = find(contains(pname,'GestAge'));
         if ~isempty(egaindex) % Need to handle possibility of 'GestAgeDays'
             egaindex = ismember(pname,'GestAge');
         end
-        pega(i) = pdata(egaindex);
-
+        
         % Find Gender
         genindex = find(contains(pname,'Sex'));
-        pgen(i) = pdata(genindex);
+        
+        if institution==2
+            pid(i) = pdata(pdatarow,idindex);
+            pbd(i) = pdata(pdatarow,bdayindex);
+            pbw(i) = pdata(pdatarow,bwindex);
+            pega(i) = pdata(pdatarow,egaindex);
+            pgen(i) = pdata(pdatarow,genindex);
+        else
+            pid(i) = pdata(idindex);
+            pbd(i) = pdata(bdayindex); % seconds of age since some arbitrary time point
+            pbw(i) = pdata(bwindex);
+            pega(i) = pdata(egaindex);
+            pgen(i) = pdata(genindex);
+        end
     elseif institution==3
         pid(i) = str2double(filename(4:7));
     end

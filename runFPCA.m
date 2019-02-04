@@ -12,7 +12,9 @@ close all
 % 4 = Control Hero Only, exclude bad pg's, only blood cultures
 % 5 = UVA, CU, WUSTL Stats - daily
 % 6 = UVA, CU, WUSTL Stats - hourly
-dataset = 5; 
+% 7 = Random subset of 5 day HERO trial samples
+% 8 = Sepsis/NEC SPO2, XC SPO2, SD HR
+dataset = 8; 
 
 % 1-Mean model, 2-Slope model, 3-Bspline model, 4-Last Hero Value
 model = 3;
@@ -43,7 +45,7 @@ only_bwt_doa = 0;
 % 2 = kmeans clustering
 % 3 = Gaussian Mixture Model
 % 4 = randomk with LWEA
-alg = 4;
+alg = 3;
 
 % Select Grouping:
 % 1 - site
@@ -55,7 +57,8 @@ alg = 4;
 % 7 - Pos/Neg blood culture
 % 8 - negsep
 % 9 - non-CONS bacteria
-grouping = 1; 
+% 10 - sepsis no vent, nec no vent, sepsis vent, nec vent
+grouping = 10; 
 
 % Choose number of neighborhoods
 neighborhoods = 6; % usually 6
@@ -74,7 +77,7 @@ weightbydistance = 0;
 smoothingon = 0;
 
 % Use Varimax to rotate the principal components
-usevarimax = 1;
+usevarimax = 0;
 
 % Use the 12 datapoint derivative (12 hour derivative for Hero)
 derivative12hr = 0;
@@ -214,6 +217,50 @@ elseif dataset==6
     % Set basis parameters
     reductionfactor = 6;
     lambdabase = 0.1;
+elseif dataset==7
+    load('X:\Amanda\FuncDataAnalysis\Hero\rctrawhero.mat')
+    load('X:\Amanda\FuncDataAnalysis\Hero\randomsegments3.mat')
+    goodlist = logical(goodlist);
+    dataday(:,1,:) = xselected(goodlist,:)';
+    pbd = bd(a(u1(goodlist)));
+    pbw = bwt(a(u1(goodlist)));
+    pid = id(a(u1(goodlist)));
+    gg = g(a(u1(goodlist)));
+    
+    pttd = ttd(u1(goodlist)); % Time to death in hours
+    diedin30days = pttd<=720;
+    n = sum(goodlist);
+    varofinterest = {'hero logit'};
+    vname = varofinterest;
+    varnums = 1;
+    nv = 1;
+    limofinterest = [-8 3];
+    daysbefore = 1; % start of the dataset
+    daysafter = 24*5; % hours after the start of the dataset
+    tt = daysbefore:daysafter;
+    
+    % Set basis parameters
+    reductionfactor = 6;
+    lambdabase = 0.1;
+elseif dataset==8
+    load('X:\Amanda\FuncDataAnalysis\SepsisNEC\nearevent.mat')
+    
+    % Convert Variables to Be Consistent with Previous Code
+    vname = xname;
+    inst = esite; % 1 = UVA, 2 = CU
+    tt = xt'/24; % Convert hours to days
+    dataday = permute(x,[2,3,1]); % Arrange the data so that it goes time,variable,subject
+    n = size(dataday,3);
+    
+    % Only Run Analysis on Variables of Interest
+    varofinterest = {'Mean SPO2-%','Max XC HR SPO2-%','SD HR'};
+    limofinterest = [1 100];
+    [varlog,varnums] = ismember(vname,varofinterest);
+    nv = sum(varlog);
+    
+    % Set basis parameters
+    reductionfactor = 24;
+    lambdabase = 10;
 end
 
 if derivative12hr
@@ -429,20 +476,37 @@ for v=1:nv
     % Names for groups
     switch grouping
         case 1
-            group_names = ['All  '; 'UVA  ';'CU   '; 'WUSTL'];
-            % Site Indices
-            category = inst(goodindices);
-            category1 = find(category==1)'; % UVA
-            category2 = find(category==2)'; % CU
-            category3 = find(category==3)'; % WUSTL
-            % Set up a design matrix having a column for the grand mean and a 
-            % column for each gender/site. Add a dummy constraint observation.
-            p = size(group_names,1);
-            zmat = zeros(size(gooddata,2),p);
-            zmat(:,1) = 1;
-            zmat(category1,2) = 1;
-            zmat(category2,3) = 1;
-            zmat(category3,4) = 1;
+            if length(unique(inst))==3
+                group_names = ['All  '; 'UVA  ';'CU   '; 'WUSTL'];
+                % Site Indices
+                category = inst(goodindices);
+                category1 = find(category==1)'; % UVA
+                category2 = find(category==2)'; % CU
+                category3 = find(category==3)'; % WUSTL
+                % Set up a design matrix having a column for the grand mean and a 
+                % column for each gender/site. Add a dummy constraint observation.
+                p = size(group_names,1);
+                zmat = zeros(size(gooddata,2),p);
+                zmat(:,1) = 1;
+                zmat(category1,2) = 1;
+                zmat(category2,3) = 1;
+                zmat(category3,4) = 1;
+            elseif length(unique(inst))==2
+                group_names = ['All'; 'UVA';'CU '];
+                % Site Indices
+                category = inst(goodindices);
+                category1 = find(category==1)'; % UVA
+                category2 = find(category==2)'; % CU
+                % Set up a design matrix having a column for the grand mean and a 
+                % column for each gender/site. Add a dummy constraint observation.
+                p = size(group_names,1);
+                zmat = zeros(size(gooddata,2),p);
+                zmat(:,1) = 1;
+                zmat(category1,2) = 1;
+                zmat(category2,3) = 1;
+            else
+                disp('Number of institutions is not 2 or 3. Edit code to reflect correct number of institutions.')
+            end
         case 2
             group_names = ['All   ';'Female'; 'Male  '];
             % Gender Indices
@@ -488,10 +552,10 @@ for v=1:nv
             zmat(category4,5) = 1;
         case 5
             group_names = ['All    ';'Control'; 'Display'];
-            % Gender Indices
+            % Control/Display Index
             category = gg(goodindices);
-            category1 = find(category==1)'; % Female
-            category2 = find(category==2)'; % Male
+            category1 = find(category==1)'; 
+            category2 = find(category==2)';
             % Set up a design matrix having a column for the grand mean and a 
             % column for each gender/site. Add a dummy constraint observation.
             p = size(group_names,1);
@@ -501,7 +565,9 @@ for v=1:nv
             zmat(category2,3) = 1;
         case 6
             group_names = ['All         '; 'Death in 30d'; 'Survival    '];
-            diedin30days = ddate(pnum)<pdate+30;
+            if exist('pdate')
+                diedin30days = ddate(pnum)<pdate+30;
+            end
             category = double(diedin30days(goodindices));
             category1 = find(category==1); % Died within 30 days of time 0
             category2 = find(category==0); % Survived for 30 days after time 0
@@ -550,6 +616,20 @@ for v=1:nv
             zmat(:,1) = 1;
             zmat(category1,2) = 1;
             zmat(category2,3) = 1;
+        case 10
+            group_names = ['All           ';'Sepsis No Vent';'NEC No Vent   ';'Sepsis Vent   ';'NEC Vent      '];
+            category = etype(goodindices);
+            category1 = find(category==1);
+            category2 = find(category==2);
+            category3 = find(category==3);
+            category4 = find(category==4);
+            p = size(group_names,1);
+            zmat = zeros(size(gooddata,2),p);
+            zmat(:,1) = 1;
+            zmat(category1,2) = 1;
+            zmat(category2,3) = 1;
+            zmat(category3,4) = 1;
+            zmat(category4,5) = 1;
     end
 
     % Attach a row of 0, 1, 1 to force gender/site effects to sum to zero, 
@@ -660,14 +740,40 @@ for v=1:nv
             end
         case 3 % Use Gaussian Mixture Model
             options = statset('MaxIter',300);
-            GMM = fitgmdist(harmscr,neighborhoods,'Options',options);
-            clusterGMM = cluster(GMM,harmscr);
+            nlogLall = zeros(8,1);
+            pvalues = zeros(8,4);
+            for neighborhoods=1:6
+                rng(4); % this sets the starting parameters the same way each time for reproducibility
+                GMM = fitgmdist(harmscr,neighborhoods,'Options',options);
+                [clusterGMM,nlogL] = cluster(GMM,harmscr);
+                if usePCs
+                    NearestNeighborPCs(GMM.mu,clusterGMM,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest);
+                else
+                    NearestNeighborBasic(GMM.mu,clusterGMM,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,basis);
+                end
+                for bn = 1:neighborhoods
+                    % Find number of babies in each category
+                    babies_in_hood = sum(clusterGMM==bn); % babies in neighborhood
+                    for c=1:length(unique(category))
+                        babies_in_cat(bn,c) = sum(and((clusterGMM==bn),category==c)); % babies in category
+                        percent_in_cat(bn,c) = round(babies_in_cat(bn,c)/babies_in_hood*100);
+                    end
+                end
+%                 addpath('X:\Amanda\FuncDataAnalysis\Hero')
+%                 pvalues(neighborhoods,:) = makePriorProbabilityTable(goodlist,xtselected,a,u1,bwt,ttd,clusterGMM);
+                nlogLall(neighborhoods) = nlogL;
+            end
+            bestnumhoods = find(nlogLall==min(nlogLall));
+            bestnumhoods = 3;
+            
+            GMM = fitgmdist(harmscr,bestnumhoods,'Options',options);
+            [clusterGMM,nlogL] = cluster(GMM,harmscr);
             if usePCs
-                NearestNeighborPCs(GMM.mu,clusterGMM,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter);
+                NearestNeighborPCs(GMM.mu,clusterGMM,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest);
             else
                 NearestNeighborBasic(GMM.mu,clusterGMM,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,basis);
             end
-            for bn = 1:neighborhoods
+            for bn = 1:bestnumhoods
                 % Find number of babies in each category
                 babies_in_hood = sum(clusterGMM==bn); % babies in neighborhood
                 for c=1:length(unique(category))
@@ -675,6 +781,28 @@ for v=1:nv
                     percent_in_cat(bn,c) = round(babies_in_cat(bn,c)/babies_in_hood*100);
                 end
             end
+            
+            figure(25)
+            plot(1:8,nlogLall)
+            hold on
+            xlabel('Number of Neighborhoods')
+            ylabel('nLogL')
+            hold off
+            
+            figure(26)
+            plot(1:8,pvalues(:,3));
+            hold on
+            xlabel('Number of Neighborhoods')
+            ylabel('p value for 30 day mortality')
+            hold off
+            
+            figure(27)
+            plot(1:8,pvalues(:,4));
+            hold on
+            xlabel('Number of Neighborhoods')
+            ylabel('p value for 7 day mortality')
+            hold off
+            
             if weightbydistance
                 P = posterior(GMM,harmscr);
                 prob_of_outcome = P*percent_in_cat(:,1)/100;

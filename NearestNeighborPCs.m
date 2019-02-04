@@ -18,7 +18,11 @@ end
 plotorder = sort(plotorder);
 for p = 1:neighborhoods % Neighbor Number
     bn = plotorder(p);
-    subplot(2,3,p)
+    if neighborhoods<=6
+        subplot(2,3,p)
+    else
+        subplot(3,4,p)
+    end
     pc_xaxis = linspace(daysbefore,daysafter,length(pc_fdmat));
     meanfd_xaxis = linspace(daysbefore,daysafter,length(meanfd_fdmat));
 
