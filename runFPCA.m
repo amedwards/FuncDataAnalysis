@@ -5,6 +5,8 @@ addpath ('X:\Amanda\FuncDataAnalysis\Ramsay')
 clear
 close all
 
+rng(4); % this sets the starting parameters the same way each time for reproducibility
+
 % Choose which dataset to load
 % 1 = Sepsis/NEC
 % 2 = HERO Sepsis Cases
@@ -14,9 +16,10 @@ close all
 % 6 = UVA, CU, WUSTL Stats - hourly
 % 7 = Random subset of 5 day HERO trial samples
 % 8 = Sepsis/NEC SPO2, XC SPO2, SD HR
-dataset = 8; 
+% 9 = Sepsis/NEC SPO2, XC SPO2, SD HR - Off Vent ONLY
+dataset = 4; 
 
-% 1-Mean model, 2-Slope model, 3-Bspline model, 4-Last Hero Value
+% 1-Mean model, 2-Slope model, 3-Bspline model, 4-Last Hero Value, 5-Bspline limited model
 model = 3;
 
 % Choose whether you want to subtract off the PRECEEDING mean
@@ -34,6 +37,12 @@ add_bwt = 0;
 % Add in days of age
 add_daysofage = 0;
 
+% Add in birthweight/days of age prior probability
+add_bwtdoa = 0;
+
+% Add in last hero score
+add_lasthero = 0;
+
 % Only use birthweight
 only_bwt = 0;
 
@@ -45,7 +54,7 @@ only_bwt_doa = 0;
 % 2 = kmeans clustering
 % 3 = Gaussian Mixture Model
 % 4 = randomk with LWEA
-alg = 3;
+alg = 4;
 
 % Select Grouping:
 % 1 - site
@@ -58,7 +67,11 @@ alg = 3;
 % 8 - negsep
 % 9 - non-CONS bacteria
 % 10 - sepsis no vent, nec no vent, sepsis vent, nec vent
-grouping = 10; 
+% 11 - sepsis (no vent + vent), nec (no vent + vent)
+% 12 - gram negative vs everything else
+% 13 - Candida/Yeast/Fungus vs everything else
+% 14 - 7 day survival
+grouping = 14; 
 
 % Choose number of neighborhoods
 neighborhoods = 6; % usually 6
@@ -152,12 +165,11 @@ elseif dataset==4
     hero(hero==-1) = nan;
     dataday(:,1,:) = hero';
     n = size(dataday,3);
-    toinclude = pg>0 & control & c==1;
-    
+    toinclude = pg>0 & control & c==1; % pg>0 removes cmenu 16-20, control = Hero non-monitored patients, c==1 indicates blood culture
     % Only Run Analysis on Variables of Interest
     varofinterest = {'hero'};
     vname = varofinterest;
-    limofinterest = [-1 7];
+    limofinterest = [0 7];
     varnums = 1;
     nv = 1;
     
@@ -228,7 +240,7 @@ elseif dataset==7
     gg = g(a(u1(goodlist)));
     
     pttd = ttd(u1(goodlist)); % Time to death in hours
-    diedin30days = pttd<=720;
+    diedinXdays = pttd<=720;
     n = sum(goodlist);
     varofinterest = {'hero logit'};
     vname = varofinterest;
@@ -253,8 +265,32 @@ elseif dataset==8
     n = size(dataday,3);
     
     % Only Run Analysis on Variables of Interest
-    varofinterest = {'Mean SPO2-%','Max XC HR SPO2-%','SD HR'};
-    limofinterest = [1 100];
+    varofinterest = {'Max XC HR SPO2-%','Mean SPO2-%','SD HR'};
+    limofinterest = [0 0.5; 0 12; 0 100];
+    [varlog,varnums] = ismember(vname,varofinterest);
+    nv = sum(varlog);
+    
+    % Set basis parameters
+    reductionfactor = 24;
+    lambdabase = 10;
+elseif dataset==9
+    load('X:\Amanda\FuncDataAnalysis\SepsisNEC\nearevent.mat')
+    
+    % Convert Variables to Be Consistent with Previous Code
+    vname = xname;
+    inst = esite; % 1 = UVA, 2 = CU
+    tt = xt'/24; % Convert hours to days
+    dataday = permute(x,[2,3,1]); % Arrange the data so that it goes time,variable,subject
+    
+    % Only keep babies who are off the ventilator
+    dataday = dataday(:,:,etype<3);
+    etype = etype(etype<3);
+    
+    n = size(dataday,3);
+    
+    % Only Run Analysis on Variables of Interest
+    varofinterest = {'Max XC HR SPO2-%','SD HR','Mean SPO2-%'};
+    limofinterest = [0 0.5; 0 12; 88 100];
     [varlog,varnums] = ismember(vname,varofinterest);
     nv = sum(varlog);
     
@@ -312,14 +348,17 @@ switch model
     case 4
         nbasis = 1;
         nharm = 1;
+    case 5
+        nbasis = 5;
+        nharm = 4;
 end
 
 % ------------------- Create Basis Functions -----------------------
 
 Lbasis  = create_constant_basis(dayrange);  %  create a constant basis
 Mbasis = create_monomial_basis(dayrange,nbasis); % create a monomial basis
-if model==3
-    Bbasis = create_bspline_basis(dayrange,nbasis,5); % create a bspline basis - needed to up the order to 5 for smoothing penalty requirement
+if model==3 || model==5
+    Bbasis = create_bspline_basis(dayrange,nbasis,5); % create a bspline basis - need to up the order to 5 for smoothing penalty requirement if we want derivatives
 end
 
 % Choose which basis function to use
@@ -344,7 +383,7 @@ vdata_interp_all = zeros(length(tt),nv,size(dataday,3));
 fdstruct = struct();
 pcastruct = struct();
 datamean = zeros(nv,size(dataday,3));
-
+lastvalues = zeros(n,nv);
 
 
 for v=1:nv
@@ -384,7 +423,7 @@ for v=1:nv
     if dataset==4
         gooddata = gooddata&toinclude;
     end
-    goodindices = gooddata;
+    goodindices(v,:) = gooddata;
     
     % Subtract off the data mean
     datamean(v,:) = nanmean(squeeze(vdata_interp(:,v,:)));
@@ -393,19 +432,19 @@ for v=1:nv
     end
     
     if dataset == 1
-        fprintf(['UVA   Babies Included: ' num2str(sum(goodindices(inst==1))) '\n'])
-        fprintf(['CU    Babies Included: ' num2str(sum(goodindices(inst==2))) '\n'])
+        fprintf(['UVA   Babies Included: ' num2str(sum(goodindices(v,inst==1))) '\n'])
+        fprintf(['CU    Babies Included: ' num2str(sum(goodindices(v,inst==2))) '\n'])
     elseif dataset == 2
-        fprintf(['Babies Included: ' num2str(sum(goodindices)) '\n'])
+        fprintf(['Babies Included: ' num2str(sum(goodindices(v,:))) '\n'])
     end
     
-    gooddata = squeeze(vdata_interp(:,v,goodindices));
+    gooddata = squeeze(vdata_interp(:,v,goodindices(v,:)));
     
     % ------------------ Fit Basis Functions ---------------------------
     
     % Fit basis functions for each baby
     fdstruct(v).dayfd = smooth_basis(daytime, gooddata, basis);
-    dayfd_fdnames = {'Day','ID',vname{v}};
+    dayfd_fdnames = {'Day','ID',varofinterest{v}};
     fdstruct(v).dayfd = putnames(fdstruct(v).dayfd, dayfd_fdnames);
     
     % Plot individual basis curves and values
@@ -472,6 +511,35 @@ for v=1:nv
     figure(); 
     [meanfd_fdmat,pc_fdmat] = plot_pca_fd(pcastruct(v).daypcastr,1);
     
+%     % -------------------------- CCA ------------------------------------
+%     if v==2 && nv>=2
+%         bothindices = sum(goodindices,1)==2;
+%         fd1indices = bothindices(logical(goodindices(1,:)));
+%         fd2indices = bothindices(logical(goodindices(2,:)));
+%         ccastruct.daypcastr = cca_fd(fdstruct(1).dayfd(fd1indices),fdstruct(2).dayfd(fd2indices),3);
+%         figure()
+%         plot(ccastruct.daypcastr.wtfdx)
+%         hold on
+%         plot(ccastruct.daypcastr.wtfdy)
+%         
+%         group_names = ['All   ';'Sepsis';'NEC   '];
+%         category = etype(bothindices);
+%         color = (category==1 | category==3); % Sepsis
+%         figure()
+%         for cwi = 1:3 % canonical weight index
+%             subplot(1,3,cwi)
+%             scatter(ccastruct.daypcastr.varx(color,cwi),ccastruct.daypcastr.vary(color,cwi)) % Sepsis
+%             hold on
+%             scatter(ccastruct.daypcastr.varx(~color,cwi),ccastruct.daypcastr.vary(~color,cwi)) % NEC
+%             xlabel([varofinterest{1} ' Canonical Weight'])
+%             ylabel([varofinterest{2} ' Canonical Weight'])
+%             legend(group_names(2:3,:))
+%             title(['Canonical Weight Pair ' num2str(cwi) ' with Correlation: ' num2str(ccastruct.daypcastr.corrs(cwi))])
+%         end
+% %         plot_cca(ccastruct.daypcastr,1);
+%     end
+    
+    
     % -------------------- Functional ANOVA -------------------------
     % Names for groups
     switch grouping
@@ -479,7 +547,7 @@ for v=1:nv
             if length(unique(inst))==3
                 group_names = ['All  '; 'UVA  ';'CU   '; 'WUSTL'];
                 % Site Indices
-                category = inst(goodindices);
+                category = inst(goodindices(v,:));
                 category1 = find(category==1)'; % UVA
                 category2 = find(category==2)'; % CU
                 category3 = find(category==3)'; % WUSTL
@@ -494,7 +562,7 @@ for v=1:nv
             elseif length(unique(inst))==2
                 group_names = ['All'; 'UVA';'CU '];
                 % Site Indices
-                category = inst(goodindices);
+                category = inst(goodindices(v,:));
                 category1 = find(category==1)'; % UVA
                 category2 = find(category==2)'; % CU
                 % Set up a design matrix having a column for the grand mean and a 
@@ -510,7 +578,7 @@ for v=1:nv
         case 2
             group_names = ['All   ';'Female'; 'Male  '];
             % Gender Indices
-            category = pgen(goodindices);
+            category = pgen(goodindices(v,:));
             category1 = find(category==1)'; % Female
             category2 = find(category==2)'; % Male
             % Set up a design matrix having a column for the grand mean and a 
@@ -523,7 +591,7 @@ for v=1:nv
         case 3
             group_names = ['All ';'ELBW'; 'VLBW'];
             % Gender Indices
-            category = pbw(goodindices);
+            category = pbw(goodindices(v,:));
             category1 = find(category<1000)'; % ELBW
             category2 = find(category>=1000)'; % VLBW non ELBW
             % Set up a design matrix having a column for the grand mean and a 
@@ -536,7 +604,7 @@ for v=1:nv
         case 4
             group_names = ['All        '; '<27 Weeks  ';'27-30 Weeks';'31-34 Weeks';'>34 Weeks  '];
             % Site Indices
-            category = pega(goodindices);
+            category = pega(goodindices(v,:));
             category1 = find(category<27)'; % <27 Weeks
             category2 = find(category>=27&category<30)'; % 27-30 Weeks
             category3 = find(category>=30&category<34)'; % 31-34 Weeks
@@ -553,7 +621,7 @@ for v=1:nv
         case 5
             group_names = ['All    ';'Control'; 'Display'];
             % Control/Display Index
-            category = gg(goodindices);
+            category = gg(goodindices(v,:));
             category1 = find(category==1)'; 
             category2 = find(category==2)';
             % Set up a design matrix having a column for the grand mean and a 
@@ -566,9 +634,9 @@ for v=1:nv
         case 6
             group_names = ['All         '; 'Death in 30d'; 'Survival    '];
             if exist('pdate')
-                diedin30days = ddate(pnum)<pdate+30;
+                diedinXdays = ddate(pnum)<pdate+30;
             end
-            category = double(diedin30days(goodindices));
+            category = double(diedinXdays(goodindices(v,:)));
             category1 = find(category==1); % Died within 30 days of time 0
             category2 = find(category==0); % Survived for 30 days after time 0
             category(category==0) = 2; % Switch category label so that survival is category 2
@@ -580,9 +648,9 @@ for v=1:nv
             zmat(category1,2) = 1;
             zmat(category2,3) = 1;
         case 7
-            group_names = ['All     ';'Positive';'Negative'];
-            category = pg(goodindices);
-            %Switch the category labels
+            group_names = ['All             ';'Positive Culture';'Negative Culture'];
+            category = pg(goodindices(v,:));
+            % Switch the category labels
             category(category==2) = 0;
             category(category==1) = 2;
             category(category==0) = 1;
@@ -595,7 +663,7 @@ for v=1:nv
             zmat(category2,3) = 1;
         case 8
             group_names = ['All       ';'Negsep    ';'Not negsep'];
-            category = double(negsep(goodindices));
+            category = double(negsep(goodindices(v,:)));
             category1 = find(category==1); % Negsep
             category2 = find(category==0); % Not negsep (Clinsep + Sep)
             category(category==0) = 2;
@@ -606,8 +674,8 @@ for v=1:nv
             zmat(category2,3) = 1;
         case 9
             group_names = ['All              ';'Non-CONS Bacteria';'Negative or CONS '];
-            nonconsbac = c>2&c<16;
-            category = double(nonconsbac(goodindices));
+            nonconsbac = pres>2&pres<16;
+            category = double(nonconsbac(goodindices(v,:)));
             category1 = find(category==1); % Non-CONS Bacteria
             category2 = find(category==0); % Either CONS or no bacteria
             category(category==0) = 2;
@@ -618,7 +686,7 @@ for v=1:nv
             zmat(category2,3) = 1;
         case 10
             group_names = ['All           ';'Sepsis No Vent';'NEC No Vent   ';'Sepsis Vent   ';'NEC Vent      '];
-            category = etype(goodindices);
+            category = etype(goodindices(v,:));
             category1 = find(category==1);
             category2 = find(category==2);
             category3 = find(category==3);
@@ -630,6 +698,56 @@ for v=1:nv
             zmat(category2,3) = 1;
             zmat(category3,4) = 1;
             zmat(category4,5) = 1;
+        case 11
+            group_names = ['All   ';'Sepsis';'NEC   '];
+            category = etype(goodindices(v,:));
+            category1 = find(category==1 | category==3);
+            category2 = find(category==2 | category==4);
+            p = size(group_names,1);
+            zmat = zeros(size(gooddata,2),p);
+            zmat(:,1) = 1;
+            zmat(category1,2) = 1;
+            zmat(category2,3) = 1;
+        case 12
+            group_names = ['All            ';'Gram negative  ';'Everything else'];
+            gramneg = pres>6 & pres<15;
+            category = double(gramneg(goodindices(v,:)));
+            category1 = find(category==1); % Candida, yeast, fungus
+            category2 = find(category==0); % Not Candida, yeast, fungus
+            category(category==0) = 2;
+            p = size(group_names,1);
+            zmat = zeros(size(gooddata,2),p);
+            zmat(:,1) = 1;
+            zmat(category1,2) = 1;
+            zmat(category2,3) = 1;
+        case 13
+            group_names = ['All                 ';'Candida Yeast Fungus';'Everything else     '];
+            candida = pres==15;
+            category = double(candida(goodindices(v,:)));
+            category1 = find(category==1); % Candida, yeast, fungus
+            category2 = find(category==0); % Not Candida, yeast, fungus
+            category(category==0) = 2;
+            p = size(group_names,1);
+            zmat = zeros(size(gooddata,2),p);
+            zmat(:,1) = 1;
+            zmat(category1,2) = 1;
+            zmat(category2,3) = 1;
+        case 14
+            group_names = ['All        '; 'Death in 7d'; 'Survival   '];
+            if exist('pdate')
+                diedinXdays = ddate(pnum)<pdate+7;
+            end
+            category = double(diedinXdays(goodindices(v,:)));
+            category1 = find(category==1); % Died within 30 days of time 0
+            category2 = find(category==0); % Survived for 30 days after time 0
+            category(category==0) = 2; % Switch category label so that survival is category 2
+            % Set up a design matrix having a column for the grand mean and a 
+            % column for each gender/site. Add a dummy contsraint observation.
+            p = size(group_names,1);
+            zmat = zeros(size(gooddata,2),p);
+            zmat(:,1) = 1;
+            zmat(category1,2) = 1;
+            zmat(category2,3) = 1;
     end
 
     % Attach a row of 0, 1, 1 to force gender/site effects to sum to zero, 
@@ -691,25 +809,37 @@ for v=1:nv
     end
     
     if colofmeans
-        harmscr = [harmscr, datamean(goodindices)'];
+        harmscr = [harmscr, datamean(goodindices(v,:))'];
     end
     
     if add_bwt
-        harmscr = [harmscr, bwt(pnum(goodindices))];
+        harmscr = [harmscr, bwt(pnum(goodindices(v,:)))];
     end
     
     if add_daysofage
         daysofage = pdate-bd(pnum);
-        harmscr = [harmscr, daysofage(goodindices)];
+        harmscr = [harmscr, daysofage(goodindices(v,:))];
+    end
+    
+    if add_bwtdoa
+        daysofage = pdate-bd(pnum);
+        priorprob = findBW_DOA_priorprob(bwt(pnum(goodindices(v,:))),daysofage(goodindices(v,:)),category);
+        harmscr = [harmscr, priorprob];
+    end
+    
+    if add_lasthero
+        windowvdata = squeeze(vdata_interp_all(start_tt:end_tt,v,:));
+        lastscore = windowvdata(end,:);
+        harmscr = [harmscr, lastscore(goodindices(v,:))'];
     end
     
     if only_bwt
-        harmscr = bwt(pnum(goodindices));
+        harmscr = bwt(pnum(goodindices(v,:)));
     end
     
     if only_bwt_doa
         daysofage = pdate-bd(pnum);
-        harmscr = [bwt(pnum(goodindices)), daysofage(goodindices)];
+        harmscr = [bwt(pnum(goodindices(v,:))), daysofage(goodindices(v,:))];
     end
     
     % --------------- Predict Probability of Outcome -----------------
@@ -740,14 +870,21 @@ for v=1:nv
             end
         case 3 % Use Gaussian Mixture Model
             options = statset('MaxIter',300);
-            nlogLall = zeros(8,1);
+            nlogLall = nan*ones(8,1);
             pvalues = zeros(8,4);
-            for neighborhoods=1:6
+            clusters = zeros(length(harmscr),7);
+            GMMBIC = zeros(8,1);
+            for neighborhoods=1:8
                 rng(4); % this sets the starting parameters the same way each time for reproducibility
+                figure()
                 GMM = fitgmdist(harmscr,neighborhoods,'Options',options);
                 [clusterGMM,nlogL] = cluster(GMM,harmscr);
+                if neighborhoods>1
+                    clusters(:,neighborhoods-1) = clusterGMM;
+                    P(neighborhoods-1).clusterprob = posterior(GMM,harmscr);
+                end
                 if usePCs
-                    NearestNeighborPCs(GMM.mu,clusterGMM,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest);
+                    NearestNeighborPCs(GMM.mu,clusterGMM,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest(v,:),[]);
                 else
                     NearestNeighborBasic(GMM.mu,clusterGMM,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,basis);
                 end
@@ -764,12 +901,13 @@ for v=1:nv
                 nlogLall(neighborhoods) = nlogL;
             end
             bestnumhoods = find(nlogLall==min(nlogLall));
-            bestnumhoods = 3;
-            
+%             bestnumhoods = 3;
+            rng(4);
             GMM = fitgmdist(harmscr,bestnumhoods,'Options',options);
             [clusterGMM,nlogL] = cluster(GMM,harmscr);
+            figure()
             if usePCs
-                NearestNeighborPCs(GMM.mu,clusterGMM,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest);
+                NearestNeighborPCs(GMM.mu,clusterGMM,pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest(v,:),fdstruct(v).dayfd);
             else
                 NearestNeighborBasic(GMM.mu,clusterGMM,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,basis);
             end
@@ -789,19 +927,19 @@ for v=1:nv
             ylabel('nLogL')
             hold off
             
-            figure(26)
-            plot(1:8,pvalues(:,3));
-            hold on
-            xlabel('Number of Neighborhoods')
-            ylabel('p value for 30 day mortality')
-            hold off
-            
-            figure(27)
-            plot(1:8,pvalues(:,4));
-            hold on
-            xlabel('Number of Neighborhoods')
-            ylabel('p value for 7 day mortality')
-            hold off
+%             figure(26)
+%             plot(1:8,pvalues(:,3));
+%             hold on
+%             xlabel('Number of Neighborhoods')
+%             ylabel('p value for 30 day mortality')
+%             hold off
+%             
+%             figure(27)
+%             plot(1:8,pvalues(:,4));
+%             hold on
+%             xlabel('Number of Neighborhoods')
+%             ylabel('p value for 7 day mortality')
+%             hold off
             
             if weightbydistance
                 P = posterior(GMM,harmscr);
@@ -825,12 +963,18 @@ for v=1:nv
             C_LWEA = findclustercentroids(resultsLWEA,harmscr);
             C_LWGP = findclustercentroids(resultsLWGP,harmscr); 
             if usePCs
-                for clusts = 1:5
+                for clusts = 1:11
                     figure()
-                    percent_in_cat = NearestNeighborPCs(C_LWEA(clusts).centroid,resultsLWEA(:,clusts),pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest(v,:));
+                    percent_in_cat = NearestNeighborPCs(C_LWEA(clusts).centroid,resultsLWEA(:,clusts),pc_fdmat,meanfd_fdmat,daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,limofinterest(v,:),fdstruct(v).dayfd);
+                end
+            else
+                for clusts = 1:11
+                    figure()
+                    percent_in_cat = NearestNeighborBasic(C_LWEA(clusts).centroid,resultsLWEA(:,clusts),daytime,vname{column},category,group_names(2:end,:),daysbefore,daysafter,basis);
                 end
             end
             prob_of_outcome = percent_in_cat(resultsLWEA(:,clusts));
+            clusters = resultsLWEA;
     end
     
     % ------------------- Make ROC Curve ------------------------------
@@ -848,8 +992,8 @@ for v=1:nv
     percentcorrect = sum(category(I(1:qtyofoutcome1))==1)/qtyofoutcome1;
     incidentrate = qtyofoutcome1/length(category);
     improvement_over_incident_rate = percentcorrect/incidentrate;
-    fprintf(['Score One Method: Percent correct: ' num2str(round(percentcorrect*100)) '%% \n']);
-    fprintf(['Score One Method: Improvement over incident rate: ' num2str(improvement_over_incident_rate) ' \n'])
+    fprintf(['Percent correct: ' num2str(round(percentcorrect*100)) '%% \n']);
+    fprintf(['Improvement over incident rate: ' num2str(improvement_over_incident_rate) ' \n'])
     
     % -------------- Find Confidence Intervals ----------------------
     
@@ -914,4 +1058,240 @@ for v=1:nv
             ylim([limofinterest(v,1),limofinterest(v,2)]);
         end
     end
+    
+    % ------------ Create regression model comparison -------------------
+    
+    if alg ==4
+        daysofage = pdate-bd(pnum);
+        windowvdata = squeeze(vdata_interp_all(start_tt:end_tt,v,:));
+        lastvalues(:,v) = windowvdata(end,:);
+
+        priorprob = findBW_DOA_priorprob(bwt(pnum(goodindices(v,:))),daysofage(goodindices(v,:)),category,id(pnum(goodindices(v,:))));
+
+        n = sum(goodindices);
+
+        regmodel(1).params = bwt(pnum(goodindices(v,:)));
+        regmodel(1).name = 'BWT';
+
+        regmodel(2).params = [bwt(pnum(goodindices(v,:))), clusters(:,1)==1];
+        regmodel(2).name = 'BWT + 2 Neighborhoods';
+
+        regmodel(3).params = [bwt(pnum(goodindices(v,:))), clusters(:,2)==1,clusters(:,2)==2];
+        regmodel(3).name = 'BWT + 3 Neighborhoods';
+
+        regmodel(4).params = [bwt(pnum(goodindices(v,:))), clusters(:,3)==1,clusters(:,3)==2,clusters(:,3)==3];
+        regmodel(4).name = 'BWT + 4 Neighborhoods';
+
+        regmodel(5).params = [bwt(pnum(goodindices(v,:))), clusters(:,4)==1,clusters(:,4)==2,clusters(:,4)==3,clusters(:,4)==4];
+        regmodel(5).name = 'BWT + 5 Neighborhoods';
+
+        regmodel(6).params = [bwt(pnum(goodindices(v,:))), clusters(:,5)==1,clusters(:,5)==2,clusters(:,5)==3,clusters(:,5)==4,clusters(:,5)==5];
+        regmodel(6).name = 'BWT + 6 Neighborhoods';
+
+        regmodel(7).params = priorprob; %[bwt(pnum(goodindices(v,:))), daysofage(goodindices(v,:))];
+        regmodel(7).name = 'BWT/DOA';
+
+        regmodel(8).params = [priorprob, lastvalues(goodindices(v,:),v)]; %[bwt(pnum(goodindices(v,:))), daysofage(goodindices(v,:)), lastvalues(goodindices(v,:),v)];
+        regmodel(8).name = 'BWT/DOA + Last Value';
+
+        regmodel(9).params = [priorprob, clusters(:,1)==1];
+        regmodel(9).name = 'BWT/DOA + 2 Neighborhoods';
+
+        regmodel(10).params = [priorprob, clusters(:,2)==1,clusters(:,2)==2];
+        regmodel(10).name = 'BWT/DOA + 3 Neighborhoods';
+
+        regmodel(11).params = [priorprob, clusters(:,3)==1,clusters(:,3)==2,clusters(:,3)==3];
+        regmodel(11).name = 'BWT/DOA + 4 Neighborhoods';
+
+        regmodel(12).params = [priorprob, clusters(:,4)==1,clusters(:,4)==2,clusters(:,4)==3,clusters(:,4)==4];
+        regmodel(12).name = 'BWT/DOA + 5 Neighborhoods';
+
+        regmodel(13).params = [priorprob, clusters(:,5)==1,clusters(:,5)==2,clusters(:,5)==3,clusters(:,5)==4,clusters(:,5)==5];
+        regmodel(13).name = 'BWT/DOA + 6 Neighborhoods';
+
+        regmodel(14).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v)];
+        regmodel(14).name = 'BWT + Last Value';
+
+        regmodel(15).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), clusters(:,1)==1];
+        regmodel(15).name = 'BWT + Last Value + 2 Neighborhoods';
+
+        regmodel(16).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), clusters(:,2)==1,clusters(:,2)==2];
+        regmodel(16).name = 'BWT + Last Value + 3 Neighborhoods';
+
+        regmodel(17).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), clusters(:,3)==1,clusters(:,3)==2,clusters(:,3)==3];
+        regmodel(17).name = 'BWT + Last Value + 4 Neighborhoods';
+
+        regmodel(18).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), clusters(:,4)==1,clusters(:,4)==2,clusters(:,4)==3,clusters(:,4)==4];
+        regmodel(18).name = 'BWT + Last Value + 5 Neighborhoods';
+
+        regmodel(19).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), clusters(:,5)==1,clusters(:,5)==2,clusters(:,5)==3,clusters(:,5)==4,clusters(:,5)==5];
+        regmodel(19).name = 'BWT + Last Value + 6 Neighborhoods';
+
+        regmodel(20).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,1)==1];
+        regmodel(20).name = 'BWT/DOA + Last Value + 2 Neighborhoods';
+
+        regmodel(21).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,2)==1,clusters(:,2)==2];
+        regmodel(21).name = 'BWT/DOA + Last Value + 3 Neighborhoods';
+
+        regmodel(22).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,3)==1,clusters(:,3)==2,clusters(:,3)==3];
+        regmodel(22).name = 'BWT/DOA + Last Value + 4 Neighborhoods';
+
+        regmodel(23).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,4)==1,clusters(:,4)==2,clusters(:,4)==3,clusters(:,4)==4];
+        regmodel(23).name = 'BWT/DOA + Last Value + 5 Neighborhoods';
+
+        regmodel(24).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,5)==1,clusters(:,5)==2,clusters(:,5)==3,clusters(:,5)==4,clusters(:,5)==5];
+        regmodel(24).name = 'BWT/DOA + Last Value + 6 Neighborhoods';
+
+        regmodel(25).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,6)==1,clusters(:,6)==2,clusters(:,6)==3,clusters(:,6)==4,clusters(:,6)==5,clusters(:,6)==6];
+        regmodel(25).name = 'BWT/DOA + Last Value + 7 Neighborhoods';
+
+        regmodel(26).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,7)==1,clusters(:,7)==2,clusters(:,7)==3,clusters(:,7)==4,clusters(:,7)==5,clusters(:,7)==6,clusters(:,7)==7];
+        regmodel(26).name = 'BWT/DOA + Last Value + 8 Neighborhoods';
+
+        regmodel(27).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,8)==1,clusters(:,8)==2,clusters(:,8)==3,clusters(:,8)==4,clusters(:,8)==5,clusters(:,8)==6,clusters(:,8)==7,clusters(:,8)==8];
+        regmodel(27).name = 'BWT/DOA + Last Value + 9 Neighborhoods';
+
+        regmodel(28).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,9)==1,clusters(:,9)==2,clusters(:,9)==3,clusters(:,9)==4,clusters(:,9)==5,clusters(:,9)==6,clusters(:,9)==7,clusters(:,9)==8,clusters(:,9)==9];
+        regmodel(28).name = 'BWT/DOA + Last Value + 10 Neighborhoods';
+        
+        regmodel(29).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,10)==1,clusters(:,10)==2,clusters(:,10)==3,clusters(:,10)==4,clusters(:,10)==5,clusters(:,10)==6,clusters(:,10)==7,clusters(:,10)==8,clusters(:,10)==9,clusters(:,10)==10];
+        regmodel(29).name = 'BWT/DOA + Last Value + 11 Neighborhoods';
+        
+        regmodel(30).params = [priorprob, lastvalues(goodindices(v,:),v), clusters(:,11)==1,clusters(:,11)==2,clusters(:,11)==3,clusters(:,11)==4,clusters(:,11)==5,clusters(:,11)==6,clusters(:,11)==7,clusters(:,11)==8,clusters(:,11)==9,clusters(:,11)==10,clusters(:,11)==11];
+        regmodel(30).name = 'BWT/DOA + Last Value + 12 Neighborhoods';
+        
+        regmodel(31).params = [priorprob, clusters(:,6)==1,clusters(:,6)==2,clusters(:,6)==3,clusters(:,6)==4,clusters(:,6)==5,clusters(:,6)==6];
+        regmodel(31).name = 'BWT/DOA + 7 Neighborhoods';
+
+        regmodel(32).params = [priorprob, clusters(:,7)==1,clusters(:,7)==2,clusters(:,7)==3,clusters(:,7)==4,clusters(:,7)==5,clusters(:,7)==6,clusters(:,7)==7];
+        regmodel(32).name = 'BWT/DOA + 8 Neighborhoods';
+
+        regmodel(33).params = [priorprob, clusters(:,8)==1,clusters(:,8)==2,clusters(:,8)==3,clusters(:,8)==4,clusters(:,8)==5,clusters(:,8)==6,clusters(:,8)==7,clusters(:,8)==8];
+        regmodel(33).name = 'BWT/DOA + 9 Neighborhoods';
+
+        regmodel(34).params = [priorprob, clusters(:,9)==1,clusters(:,9)==2,clusters(:,9)==3,clusters(:,9)==4,clusters(:,9)==5,clusters(:,9)==6,clusters(:,9)==7,clusters(:,9)==8,clusters(:,9)==9];
+        regmodel(34).name = 'BWT/DOA + 10 Neighborhoods';
+        
+        regmodel(35).params = [priorprob, clusters(:,10)==1,clusters(:,10)==2,clusters(:,10)==3,clusters(:,10)==4,clusters(:,10)==5,clusters(:,10)==6,clusters(:,10)==7,clusters(:,10)==8,clusters(:,10)==9,clusters(:,10)==10];
+        regmodel(35).name = 'BWT/DOA + 11 Neighborhoods';
+        
+        regmodel(36).params = [priorprob, clusters(:,11)==1,clusters(:,11)==2,clusters(:,11)==3,clusters(:,11)==4,clusters(:,11)==5,clusters(:,11)==6,clusters(:,11)==7,clusters(:,11)==8,clusters(:,11)==9,clusters(:,11)==10,clusters(:,11)==11];
+        regmodel(36).name = 'BWT/DOA + 12 Neighborhoods';
+        
+        regmodel(37).params = lastvalues(goodindices(v,:),v);
+        regmodel(37).name = 'Last Value';
+        
+        regmodel(38).params = [lastvalues(goodindices(v,:),v), clusters(:,5)==1,clusters(:,5)==2,clusters(:,5)==3,clusters(:,5)==4,clusters(:,5)==5];
+        regmodel(38).name = 'Last Value + 6 Neighborhoods';
+        
+    %     
+    %     regmodel(20).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(1).clusterprob(:,1)];
+    %     regmodel(20).name = 'BWT + Last Value + 2 Neigh. Prob.';
+    %     
+    %     regmodel(21).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(2).clusterprob(:,1),P(2).clusterprob(:,2)];
+    %     regmodel(21).name = 'BWT + Last Value + 3 Neigh. Prob.';
+    %     
+    %     regmodel(22).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(3).clusterprob(:,1),P(3).clusterprob(:,2),P(3).clusterprob(:,3)];
+    %     regmodel(22).name = 'BWT + Last Value + 4 Neigh. Prob.';
+    % 
+    %     regmodel(23).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(4).clusterprob(:,1),P(4).clusterprob(:,2),P(4).clusterprob(:,3),P(4).clusterprob(:,4)];
+    %     regmodel(23).name = 'BWT + Last Value + 5 Neigh. Prob.';
+    %     
+    %     regmodel(24).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(5).clusterprob(:,1),P(5).clusterprob(:,2),P(5).clusterprob(:,3),P(5).clusterprob(:,4),P(5).clusterprob(:,5)];
+    %     regmodel(24).name = 'BWT + Last Value + 6 Neigh. Prob.';
+
+        alld = zeros(length(regmodel),1);
+        alldev = zeros(length(regmodel),1);
+        allAIC = zeros(length(regmodel),1);
+        allBIC = zeros(length(regmodel),1);
+        allBriar = zeros(length(regmodel),1);
+        allAUC = zeros(length(regmodel),1);
+        allpihat = zeros(n,length(regmodel));
+        allrownames = {};
+
+        for m=1:length(regmodel)
+            [B,d,dev,AIC,BIC,Briar,AUC,pihat,X,Y,stats] = modelcomparison(regmodel(m).params,category,n);
+            allB(m).B = B;
+            alld(m) = d;
+            alldev(m) = dev;
+            allAIC(m) = AIC;
+            allBIC(m) = BIC;
+            allBriar(m) = Briar;
+            allAUC(m) = AUC;
+            allstats(m).stats = stats;
+            ROC(m).X = X;
+            ROC(m).Y = Y;
+            allpihat(:,m) = pihat;
+            allrownames{m} =  regmodel(m).name;
+        end
+
+        alldev = round(alldev,1);
+        allAIC = round(allAIC,1);
+        allBIC = round(allBIC,1);
+        allBriar = round(allBriar,5);
+        allAUC = round(allAUC,2);
+
+        Table = table(alld,alldev,allAIC,allBIC,allBriar,allAUC,'VariableNames',{'DOF','Dev','AIC','BIC','Briar','AUC'},'rowNames',allrownames);
+        Table
+
+        priorprobmodel = 7;
+        basemodel = 8;
+        bettermodel = 13;
+        bestmodel = 24;
+        
+%         % Wald Chi-Square Test
+%         Y = allB(bestmodel).B;
+%         Y0 = allB(basemodel).B;
+%         model = arima(2,0,0);
+%         [fit,V] = estimate(model,Y,'Y0',Y0);
+%         r = fit.AR{2};
+        
+
+        figure()
+        scatter(allpihat(category==2,basemodel),allpihat(category==2,bestmodel),[],'b.')
+        hold on
+        scatter(allpihat(category==1,basemodel),allpihat(category==1,bestmodel),[],'r.')
+        xlabel(regmodel(basemodel).name)
+        ylabel(regmodel(bestmodel).name)
+        legend(group_names(3,:),group_names(2,:))
+        axis square
+
+        figure
+        plot(ROC(priorprobmodel).X,ROC(priorprobmodel).Y)
+        hold on
+        plot(ROC(basemodel).X,ROC(basemodel).Y)
+        plot(ROC(bettermodel).X,ROC(bettermodel).Y)
+        plot(ROC(bestmodel).X,ROC(bestmodel).Y)
+
+        xlabel('False positive rate') 
+        ylabel('True positive rate')
+        title('ROC for Classification by Logistic Regression')
+        legend([regmodel(priorprobmodel).name ': AUC ' num2str(allAUC(priorprobmodel))],...
+            [regmodel(basemodel).name  ': AUC ' num2str(allAUC(basemodel))],...
+            [regmodel(bettermodel).name  ': AUC ' num2str(allAUC(bettermodel))],...
+            [regmodel(bestmodel).name  ': AUC ' num2str(allAUC(bestmodel))])
+        axis square
+    end
+end
+
+function [B,d,dev,AIC,BIC,Briar,AUC,pihat,X,Y,stats] = modelcomparison(modelparams,category,n)
+   % Logistic Regression
+%     [B,dev,stats] = mnrfit(modelparams,category);
+%     pihat = mnrval(B,modelparams);
+%     pihat = pihat(:,2);
+%     RSS = nansum(stats.resid(:,2).^2);
+    category(category==2) = 0;
+    category = logical(category);
+    [B,dev,stats] = glmfit(modelparams,category,'binomial','link','logit');
+    pihat = glmval(B,modelparams,'logit');
+    RSS = nansum(stats.resid.^2);
+    d = size(modelparams,2);
+
+    [X,Y,~,AUC] = perfcurve(category,pihat,1);
+
+    % BIC from: http://www.stat.wisc.edu/courses/st333-larget/aic.pdf
+    % BIC = n+n*log(2*pi)+n*log(RSS/n)+log(n)*(d+1);
+    Briar = RSS/n;
+    AIC = dev+2*d;
+    BIC = dev+log(n)*d;
 end

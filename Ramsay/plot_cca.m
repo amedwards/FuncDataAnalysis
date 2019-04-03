@@ -32,7 +32,7 @@ function   plot_cca(ccastr, overplt, jcan, flip)
     overplt = 0;
   end
 
-  wtfdobj = ccastr.wtfdobj;
+   wtfdobj = ccastr.wtfdobj;
   wtcoef = getcoef(wtfdobj);
   if jcan(1) ~= 0
     wtcoef = wtcoef(:,jcan,:);
