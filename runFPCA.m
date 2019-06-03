@@ -1566,26 +1566,6 @@ for v=1:nv
         
         regmodel(50).params = [lastvalues(goodindices(v,:),v),clusters(:,5)==1,clusters(:,5)==2,clusters(:,5)==3,clusters(:,5)==4,clusters(:,5)==5];
         regmodel(50).name = 'Last Value + 6 Neighborhoods';
-        
-
-        
-
-        
-    %     
-    %     regmodel(20).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(1).clusterprob(:,1)];
-    %     regmodel(20).name = 'BWT + Last Value + 2 Neigh. Prob.';
-    %     
-    %     regmodel(21).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(2).clusterprob(:,1),P(2).clusterprob(:,2)];
-    %     regmodel(21).name = 'BWT + Last Value + 3 Neigh. Prob.';
-    %     
-    %     regmodel(22).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(3).clusterprob(:,1),P(3).clusterprob(:,2),P(3).clusterprob(:,3)];
-    %     regmodel(22).name = 'BWT + Last Value + 4 Neigh. Prob.';
-    % 
-    %     regmodel(23).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(4).clusterprob(:,1),P(4).clusterprob(:,2),P(4).clusterprob(:,3),P(4).clusterprob(:,4)];
-    %     regmodel(23).name = 'BWT + Last Value + 5 Neigh. Prob.';
-    %     
-    %     regmodel(24).params = [bwt(pnum(goodindices(v,:))), lastvalues(goodindices(v,:),v), P(5).clusterprob(:,1),P(5).clusterprob(:,2),P(5).clusterprob(:,3),P(5).clusterprob(:,4),P(5).clusterprob(:,5)];
-    %     regmodel(24).name = 'BWT + Last Value + 6 Neigh. Prob.';
 
         alld = zeros(length(regmodel),1);
         alldev = zeros(length(regmodel),1);
