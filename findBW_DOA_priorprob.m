@@ -5,6 +5,7 @@ event = category==1;
 allvar = [bwt,doa,event];
 
 bw_cat_max = 400:200:1600; % Birthweight category maxima
+% bw_cat_max = 500:200:1500; % Birthweight category maxima
 bw_cat_min = bw_cat_max-200; % Birthweigh category minima
 num_bw_cats = length(bw_cat_max); % Number of birthweight categories
 doa_cat_max = 4:4:224; % Days of age category maxima
@@ -27,7 +28,7 @@ for b=1:num_bw_cats
             if ~isempty(relvar_with_some_leftout)
                 pp_matrix(indicesincat(c),:) = [nanmean(relvar_with_some_leftout,1) sum(incat)-sum(indices_to_leave_out)];
             else
-                nanmatrix = ones(1,length(relevantvar))*nan;
+                nanmatrix = ones(1,size(relevantvar,2))*nan;
                 pp_matrix(indicesincat(c),:) = [nanmatrix sum(incat)-sum(indices_to_leave_out)];
             end
         end

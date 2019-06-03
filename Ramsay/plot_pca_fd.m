@@ -242,7 +242,16 @@ title('Principal Components Weighted by Percentage of Variability Explained')
 xlabel(['\fontsize{12} ',fdnames{1}])
 
 figure()
-plot(x,componentsonly)
+h = plot(x,componentsonly);
+set(h,{'color'},{[0 0 0];[0.4 0.4 0.4];[0.55 0.55 0.55];[0.8 0.8 0.8]})
+set(h,{'LineStyle'},{'-';'--';'-.';':'})
+set(h,{'LineWidth'},{3;3;3;3})
+ax = gca;
+ax.LineWidth = 2;
+ax.Box = 'off';
+ax.FontSize = 14;
+ax.FontName = 'Arial';
+
 if size(componentsonly,2)==1
     legend('Component 1')
 elseif size(componentsonly,2)==2

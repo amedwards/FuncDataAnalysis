@@ -14,7 +14,7 @@
 %                                                                   %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-function [resultsLWEA,resultsLWGP] = LWEA_and_LWGP(members,gt)
+function [resultsLWEA,resultsLWGP] = LWEA_and_LWGP(members,gt,cntTimes)
 %% A demo for the LWEA and LWGP algorithms.
 
 
@@ -56,7 +56,7 @@ para_theta = 0.4;
 % Ensemble size M
 M = 10;
 % How many times the LWEA and LWGP algorithms will be run.
-cntTimes = 1; 
+% cntTimes = 1; 
 % You can set cntTimes to a greater (or smaller) integer if you want to run
 % the algorithms more (or less) times.
 
@@ -70,7 +70,7 @@ end
 
 %% Run LWEA and LWGP repeatedly.
 % The numbers of clusters.
-clsNums = [2:30];
+clsNums = 2:12; % [2:30];
 % Scores
 nmiScoresBestK_LWEA = zeros(cntTimes, 1);
 nmiScoresTrueK_LWEA = zeros(cntTimes, 1);
@@ -108,8 +108,7 @@ for runIdx = 1:cntTimes
     % The i-th column in resultsLWEA represents the consensus clustering 
     % with clsNums(i) clusters by LWEA.
     disp('--------------------------------------------------------------');
-    
-    
+        
     %% Display the clustering results.    
     disp('##############################################################'); 
     scoresLWGP = computeNMI(resultsLWGP,gt);
