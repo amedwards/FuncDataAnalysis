@@ -11,14 +11,14 @@ rng(4); % this sets the starting parameters the same way each time for reproduci
 % 1 = Sepsis/NEC
 % 2 = HERO Sepsis Cases
 % 3 = All HERO cultures
-% 4 = Control Hero Only, exclude bad pg's, only blood cultures
+% 4 = Display Hero Only, exclude bad pg's, only blood cultures
 % 5 = UVA, CU, WUSTL Stats - daily
 % 6 = UVA, CU, WUSTL Stats - hourly
 % 7 = Random subset of 5 day HERO trial samples
 % 8 = Sepsis/NEC SPO2, XC SPO2, SD HR
 % 9 = Sepsis/NEC SPO2, XC SPO2, SD HR - Off Vent ONLY
 % 10= Blood Stream Infection (Adults) from Matthew
-% 11= Monitored Hero Only, exclue bad pg's, only blood cultures
+% 11= Non-Display Hero Only, exclue bad pg's, only blood cultures
 dataset = 4; 
 
 % 1-Mean model, 2-Slope model, 3-Bspline model, 4-Last Hero Value, 5-Bspline limited model
@@ -55,9 +55,9 @@ only_bwt_doa = 0;
 % 1 = logistic regression
 % 2 = kmeans clustering
 % 3 = Gaussian Mixture Model
-% 4 = randomk with LWEA
+% 4 = randomk with LWEA (what is used for the Display group)
 % 5 = decision tree
-% 6 = bagged trees classifier from unmonitored hero
+% 6 = bagged trees classifier from Display Hero (used for non-display Hero)
 alg = 4;
 
 % Select Grouping:
@@ -77,12 +77,15 @@ alg = 4;
 % 14 - 7 day survival
 % 15 - Adult Fungal Infection
 % 16 - gram positive vs everything else
+% 17 - clinsep vs everything else (sep + negsep)
+% 18 - sepsis vs everything else (clinsep +negsep)
 grouping = 14; 
 
 % Multicategory
 multicategory = 1;
 if multicategory
-    grouping = [14,6]; %[7,15,12,16];
+%     grouping = [7,15,12,16];
+    grouping = [6,7,8,9,12,14];
 end
     
 % Choose number of neighborhoods
@@ -114,6 +117,7 @@ clusteriterations = 1;
 
 % Use the principal components from multiple signals to cluster upon
 multisignalclust = 0;
+
 
 % Load Dataset
 if dataset==1
@@ -181,7 +185,7 @@ elseif dataset==4
     hero(hero==-1) = nan;
     dataday(:,1,:) = hero';
     n = size(dataday,3);
-    toinclude = pg>0 & control & c==1; % pg>0 removes cmenu 16-20, control = Hero non-monitored patients (control is labeled backwards), c==1 indicates blood culture
+    toinclude = pg>0 & control & c==1; % pg>0 removes cmenu 16-20, control => Hero DISPLAY patients (control is labeled backwards), c==1 indicates blood culture
     % Only Run Analysis on Variables of Interest
     varofinterest = {'hero'};
     vname = varofinterest;
@@ -318,8 +322,8 @@ elseif dataset==10
     load('X:\Amanda\BSI\OneDayBeforeAndAfterCulture.mat')
     toc
     vname = {'Positive','GramPositive','GramNegative','Fungus','HR','RespRate','SPO2','ECGDerivedRespv2','MeanRRInterval','StdofRRInt','DiastolicBP','SystolicBP','RelRiskPos','RelRiskGP','RelRiskGN','RelRiskFungal'};
-    varofinterest = {'RelRiskFungal'};%'HR','StdofRRInt','DiastolicBP', %{'HR','ECGDerivedRespv2','MeanRRInterval'};
-    limofinterest = [0 15]; %[60 150; 0 35;0 2];
+    varofinterest = {'RespRate','RelRiskFungal'};%'HR','StdofRRInt','DiastolicBP', %{'HR','ECGDerivedRespv2','MeanRRInterval'};
+    limofinterest = [0 100;0 100]; %[60 150; 0 35;0 2];
     if size(limofinterest,1)~=length(varofinterest)
         error('Please add the correct number of limits to the limofinterest variable. There must be one pair for every varofinterest.')
     end
@@ -331,8 +335,8 @@ elseif dataset==10
     n = size(dataday,3);
     tt = -1:1/4320:1;
     daysbefore = -1;
-    daysafter = 0;
-    reductionfactor = 160; %160;
+    daysafter = 1;
+    reductionfactor = 320; %160;
     lambdabase=10;
     pg = nansum(squeeze(dataday(:,1,:)),1);
     pg = double(pg>0)';
@@ -354,7 +358,7 @@ elseif dataset==11
     hero(hero==-1) = nan;
     dataday(:,1,:) = hero';
     n = size(dataday,3);
-    toinclude = pg>0 & ~control & c==1; % pg>0 removes cmenu 16-20, control = Hero non-monitored patients, c==1 indicates blood culture
+    toinclude = pg>0 & ~control & c==1; % pg>0 removes cmenu 16-20, control = Hero NON-DISPLAY patients (control is labeled backwards), c==1 indicates blood culture
     % Only Run Analysis on Variables of Interest
     varofinterest = {'hero'};
     vname = varofinterest;
@@ -373,6 +377,8 @@ if derivative12hr
     tt = tt(13:end);
     if dataset<5
         daysbefore = -4;
+    elseif dataset==10
+        daysbefore = -0.9972;
     else
         daysbefore = 24; % Hours
         limofinterest = [-12 12; -12 12];
@@ -384,6 +390,8 @@ if derivative
     tt = tt(2:end);
     if dataset<5
         daysbefore = -4;
+    elseif dataset==10
+        daysbefore = -0.9972;
     else
         daysbefore = 2; % Hours
         limofinterest = [-12 12; -12 12];
@@ -890,6 +898,28 @@ for v=1:nv
                 zmat(:,1) = 1;
                 zmat(category1,2) = 1;
                 zmat(category2,3) = 1;
+            case 17
+                group_names = ['All        ';'Clinsep    ';'Not clinsep'];
+                category = double(clinsep(goodindices(v,:)));
+                category1 = find(category==1); % Clinsep
+                category2 = find(category==0); % Not clinsep (negsep + Sep)
+                category(category==0) = 2;
+                p = size(group_names,1);
+                zmat = zeros(size(gooddata,2),p);
+                zmat(:,1) = 1;
+                zmat(category1,2) = 1;
+                zmat(category2,3) = 1;
+            case 18
+                group_names = ['All       ';'Sepsis    ';'Not sepsis'];
+                category = double(sep(goodindices(v,:)));
+                category1 = find(category==1); % Sepsis
+                category2 = find(category==0); % Not Sepsis (Clinsep + Negsep)
+                category(category==0) = 2;
+                p = size(group_names,1);
+                zmat = zeros(size(gooddata,2),p);
+                zmat(:,1) = 1;
+                zmat(category1,2) = 1;
+                zmat(category2,3) = 1;
         end
         
         c_struct(g).group_names = group_names;
@@ -1330,6 +1360,7 @@ for v=1:nv
             if v==nv
                 n = sum(goodrows);
             end
+            gooddata = squeeze(vdata_interp(:,v,goodrows));
         end
         
         regmodel(1).params = clusters(:,1)==1;
@@ -1364,6 +1395,42 @@ for v=1:nv
         
         regmodel(11).params = [clusters(:,11)==1,clusters(:,11)==2,clusters(:,11)==3,clusters(:,11)==4,clusters(:,11)==5,clusters(:,11)==6,clusters(:,11)==7,clusters(:,11)==8,clusters(:,11)==9,clusters(:,11)==10,clusters(:,11)==11];
         regmodel(11).name = '12 Neighborhoods';
+        
+        regmodel(12).params = gooddata(end,:)';
+        regmodel(12).name = 'Last Value';
+        
+        regmodel(13).params = [gooddata(end,:)' clusters(:,1)==1];
+        regmodel(13).name = 'Last Value + 2 Neighborhoods';
+        
+        regmodel(14).params = [gooddata(end,:)' clusters(:,2)==1,clusters(:,2)==2];
+        regmodel(14).name = 'Last Value + 3 Neighborhoods';
+        
+        regmodel(15).params = [gooddata(end,:)' clusters(:,3)==1,clusters(:,3)==2,clusters(:,3)==3];
+        regmodel(15).name = 'Last Value + 4 Neighborhoods';
+        
+        regmodel(16).params = [gooddata(end,:)' clusters(:,4)==1,clusters(:,4)==2,clusters(:,4)==3,clusters(:,4)==4];
+        regmodel(16).name = 'Last Value + 5 Neighborhoods';
+
+        regmodel(17).params = [gooddata(end,:)' clusters(:,5)==1,clusters(:,5)==2,clusters(:,5)==3,clusters(:,5)==4,clusters(:,5)==5];
+        regmodel(17).name = 'Last Value + 6 Neighborhoods';
+        
+        regmodel(18).params = [gooddata(end,:)' clusters(:,6)==1,clusters(:,6)==2,clusters(:,6)==3,clusters(:,6)==4,clusters(:,6)==5,clusters(:,6)==6];
+        regmodel(18).name = 'Last Value + 7 Neighborhoods';
+        
+        regmodel(19).params = [gooddata(end,:)' clusters(:,7)==1,clusters(:,7)==2,clusters(:,7)==3,clusters(:,7)==4,clusters(:,7)==5,clusters(:,7)==6,clusters(:,7)==7];
+        regmodel(19).name = 'Last Value + 8 Neighborhoods';
+        
+        regmodel(20).params = [gooddata(end,:)' clusters(:,8)==1,clusters(:,8)==2,clusters(:,8)==3,clusters(:,8)==4,clusters(:,8)==5,clusters(:,8)==6,clusters(:,8)==7,clusters(:,8)==8];
+        regmodel(20).name = 'Last Value + 9 Neighborhoods';
+        
+        regmodel(21).params = [gooddata(end,:)' clusters(:,9)==1,clusters(:,9)==2,clusters(:,9)==3,clusters(:,9)==4,clusters(:,9)==5,clusters(:,9)==6,clusters(:,9)==7,clusters(:,9)==8,clusters(:,9)==9];
+        regmodel(21).name = 'Last Value + 10 Neighborhoods';
+        
+        regmodel(22).params = [gooddata(end,:)' clusters(:,10)==1,clusters(:,10)==2,clusters(:,10)==3,clusters(:,10)==4,clusters(:,10)==5,clusters(:,10)==6,clusters(:,10)==7,clusters(:,10)==8,clusters(:,10)==9,clusters(:,10)==10];
+        regmodel(22).name = 'Last Value + 11 Neighborhoods';
+        
+        regmodel(23).params = [gooddata(end,:)' clusters(:,11)==1,clusters(:,11)==2,clusters(:,11)==3,clusters(:,11)==4,clusters(:,11)==5,clusters(:,11)==6,clusters(:,11)==7,clusters(:,11)==8,clusters(:,11)==9,clusters(:,11)==10,clusters(:,11)==11];
+        regmodel(23).name = 'Last Value + 12 Neighborhoods';
         
         
         
@@ -1771,6 +1838,8 @@ function [B,d,dev,AIC,BIC,Briar,AUC,pihat,X,Y,stats] = modelcomparison(modelpara
 %     RSS = nansum(stats.resid(:,2).^2);
     category(category==2) = 0;
     category = logical(category);
+%     opts = statset('glmfit');
+%     opts.MaxIter = 1000; % default value for glmfit is 100.
     [B,dev,stats] = glmfit(modelparams,category,'binomial','link','logit');
     pihat = glmval(B,modelparams,'logit');
     RSS = nansum(stats.resid.^2);

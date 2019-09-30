@@ -61,8 +61,8 @@ for p = 1:neighborhoods % Neighbor Number
     
     colors = {[1 0 0];[0 1 0]; [0 0 1]};
     
-    if max(meanfd_fdmat_resampled)<1
-        multiplier = 1000;
+    if max(meanfd_fdmat_resampled)<0.6
+        multiplier = 100;
     else
         multiplier = 1;
     end
@@ -101,10 +101,10 @@ for p = 1:neighborhoods % Neighbor Number
 %     babies_in_hood = length(unique(id(idx==bn)));
     for g=1:numgroups
         for c=1:categories(g)
-%             incategory = and((idx==bn),group_names_orstruct(g).category==c);
+            incategory = and((idx==bn),group_names_orstruct(g).category==c);
 %             ids_in_cat(bn,c,g) = length(unique(id(incategory)));
             cultures_in_cat(bn,c,g) = sum(and((idx==bn),group_names_orstruct(g).category==c)); % cultures in category
-            percent_in_cat(bn,c,g) = round(cultures_in_cat(bn,c,g)/cultures_in_hood*100);
+            percent_in_cat(bn,c,g) = round(cultures_in_cat(bn,c,g)/cultures_in_hood*100,1);
 %             babypercent_in_cat(bn,c,g) = round(cultures_in_cat(bn,c,g)/babies_in_hood*100);
 %             mortperc_in_cat(bn,c,g) = round(ids_in_cat(bn,c,g)/babies_in_hood*100);
         end
@@ -152,8 +152,8 @@ for p = 1:neighborhoods % Neighbor Number
             [num2str(percent_in_cat(bn,1,g)) '% ' strtrim(group_names_orstruct(g).group_names(2,:))]})
         elseif numgroups==2
             title({['Cluster ' num2str(bn) PC_title_string ': ' num2str(cultures_in_hood) ' of ' num2str(length(idx)) ' cultures'],...
-            [num2str(percent_in_cat(bn,1,1)) '% ' strtrim(group_names_orstruct(1).group_names(2,:))],...
-            [num2str(percent_in_cat(bn,1,2)) '% ' strtrim(group_names_orstruct(2).group_names(2,:))]})
+            [num2str(percent_in_cat(bn,1,1)) '% ' strtrim(group_names_orstruct(1).group_names(2,:))],... % ' IDs in Cat: ' num2str(ids_in_cat(bn,1,1))],...
+            [num2str(percent_in_cat(bn,1,2)) '% ' strtrim(group_names_orstruct(2).group_names(2,:))]}); % ' IDs in Cat: ' num2str(ids_in_cat(bn,1,2))]})
         elseif numgroups==3
             title({['Cluster ' num2str(bn) PC_title_string ': ' num2str(cultures_in_hood) ' of ' num2str(length(idx)) ' cultures'],...
             [num2str(percent_in_cat(bn,1,1)) '% ' strtrim(group_names_orstruct(1).group_names(2,:))],...
