@@ -85,7 +85,8 @@ grouping = 14;
 multicategory = 1;
 if multicategory
 %     grouping = [7,15,12,16];
-    grouping = [6,7,8,9,12,14];
+%     grouping = [6,7,8,9,12,14];
+    grouping = [14,6];
 end
     
 % Choose number of neighborhoods

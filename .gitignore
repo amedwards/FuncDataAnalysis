@@ -45,6 +45,9 @@ TablesAndSpreadsheets/
 # Matlab data files - we are not keeping anything that could possibly have any patient data in it
 *.mat
 
+# Excel files
+*.xlsx
+
 # Old Files
 FPCA502PeteBabies.m
 heroFPCA.m

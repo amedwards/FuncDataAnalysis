@@ -22,6 +22,14 @@ function pcastr = pca_fd(fdobj, nharm, harmfdPar, centerfns)
 %  MEANFD  ... A functional data object giving the mean function
 %
 %  If NHARM = 0, all fields except MEANFD are empty.
+%
+% ********************* WARNING *************************************
+% ********************* WARNING *************************************
+%  WARNING: THIS HAS BEEN EDITED BY AMANDA IN A KIND OF HACK-Y WAY: IF YOU
+%  PASS IN THREE INPUTS TO THIS FUNCTION, IT WILL LOAD IN THE HERO HARMFD
+%  VALUES FROM THE DISPLAY INFANTS!!!! (SEE LINE 233!!!)
+% ********************* WARNING *************************************
+% ********************* WARNING *************************************
 
 %  Last modified:  29 January 2013 by Jim Ramsay
 
@@ -39,7 +47,6 @@ fdbasis  = getbasis(fdobj);
 
 if nargin < 4
     centerfns = 1;   %  subtract mean from data before PCA
-%     centerfns = 0; % AMANDA DID THIS!!!!!
 end
 
 if nargin < 3
@@ -223,7 +230,11 @@ else
     end
 end
 
-harmfd = fd(harmcoef, harmbasis, harmnames);
+if nargin==3 % Amanda added this - this is only for the purposes of clustering the non-display infants in the same clusters as the display infants
+    load('X:\Amanda\FuncDataAnalysis\Hero\harmfdHero.mat','harmfd')
+else
+    harmfd = fd(harmcoef, harmbasis, harmnames);
+end
 % harmfd = fd(harmcoef, fdbasis);
 
 %  set up harmscr
